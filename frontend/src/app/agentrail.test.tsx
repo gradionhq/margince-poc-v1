@@ -831,7 +831,10 @@ describe("AgentRail", () => {
   it("narrates a summary the reader asked for while it is still being written", async () => {
     withRuns(RUN({ kind: "summarize" }));
     const { container } = render(ROUTE);
-    await settlesOnLine(container, "I'm writing your summary.");
+    await settlesOnLine(
+      container,
+      "I'm pulling together what I know about this company.",
+    );
   });
 
   it("moves the Core to working when a server run is live and this tab is idle", async () => {

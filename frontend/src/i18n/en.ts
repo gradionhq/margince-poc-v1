@@ -2372,14 +2372,16 @@ export const en = {
   // These four were deliberately not narrated until the router could say
   // `running`: reporting them settled-only meant a line that appeared already
   // finished, which tells a waiting reader nothing they did not already know.
-  "agent.activity.summarize.queued": "Your summary is queued.",
-  "agent.activity.summarize.running": "I'm writing your summary.",
-  "agent.activity.summarize.done": "Your summary is ready.",
+  "agent.activity.summarize.queued": "Reading up on this company is queued.",
+  "agent.activity.summarize.running":
+    "I'm pulling together what I know about this company.",
+  "agent.activity.summarize.done": "What I know about this company is ready.",
   "agent.activity.summarize.degraded":
-    "I got partway through your summary and stopped.",
-  "agent.activity.summarize.failed": "I couldn't finish your summary.",
+    "I got partway through this company and stopped.",
+  "agent.activity.summarize.failed":
+    "I couldn't finish reading up on this company.",
   "agent.activity.summarize.stalled":
-    "Your summary has been running unusually long. It may have stopped.",
+    "Reading up on this company has taken unusually long. It may have stopped.",
   "agent.activity.draftReply.queued": "Your reply is queued to be drafted.",
   "agent.activity.draftReply.running": "I'm drafting your reply.",
   "agent.activity.draftReply.done": "Your draft reply is ready.",

@@ -2334,15 +2334,17 @@ export const de = {
   "agent.activity.documentExtract.failed":
     "Ich konnte dein Dokument nicht lesen.",
   "agent.activity.summarize.queued":
-    "Deine Zusammenfassung steht in der Warteschlange.",
-  "agent.activity.summarize.running": "Ich schreibe deine Zusammenfassung.",
-  "agent.activity.summarize.done": "Deine Zusammenfassung ist fertig.",
+    "Das Zusammentragen zu diesem Unternehmen steht in der Warteschlange.",
+  "agent.activity.summarize.running":
+    "Ich trage zusammen, was ich über dieses Unternehmen weiß.",
+  "agent.activity.summarize.done":
+    "Was ich über dieses Unternehmen weiß, ist fertig.",
   "agent.activity.summarize.degraded":
-    "Ich bin bei deiner Zusammenfassung nur teilweise durchgekommen und habe gestoppt.",
+    "Ich bin bei diesem Unternehmen nur teilweise durchgekommen und habe gestoppt.",
   "agent.activity.summarize.failed":
-    "Ich konnte deine Zusammenfassung nicht fertigstellen.",
+    "Ich konnte das Zusammentragen zu diesem Unternehmen nicht abschließen.",
   "agent.activity.summarize.stalled":
-    "Deine Zusammenfassung läuft ungewöhnlich lange. Möglicherweise wurde sie abgebrochen.",
+    "Das Zusammentragen zu diesem Unternehmen dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
   "agent.activity.draftReply.queued":
     "Deine Antwort steht zum Entwerfen in der Warteschlange.",
   "agent.activity.draftReply.running": "Ich entwerfe deine Antwort.",

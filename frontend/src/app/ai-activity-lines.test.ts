@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
+import { NAMED, SAID, WROTE } from "./agentrail-copy";
 import {
   ACTIVITY_LINE,
   displayedKinds,
@@ -134,14 +135,16 @@ describe("lineFor", () => {
     // The third way to draw nothing, and the one the server now produces by
     // the thousand: a kind this build reports and deliberately does not
     // narrate. It must read as silence, not as a message key.
-    // One per REASON, not one example: the three not-displayed reasons are
-    // separate editorial decisions and a single case would keep passing while
-    // two of them were narrated by accident. `summarize` used to stand here and
-    // no longer can — it is displayed now, which is exactly the change this
-    // shape of test is meant to notice.
+    // One per REASON — all FOUR of them. A single case would keep passing while
+    // the other three were narrated by accident, and `cert_judge` carries a
+    // reason of its own rather than sharing one of the three named constants,
+    // which is exactly the entry a "one example per shared constant" reading
+    // would have missed. `summarize` used to stand here and no longer can: it
+    // is displayed now, which is the change this shape of test exists to catch.
     ["a background sweep", { kind: "brief_ranking", state: "done" }],
     ["work the asker is watching", { kind: "cold_start", state: "done" }],
     ["a task nothing has built", { kind: "nl_search", state: "done" }],
+    ["the lane grading this build", { kind: "cert_judge", state: "done" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
   });
@@ -170,4 +173,40 @@ describe("the kinds the rail asks for", () => {
       "summarize",
     ]);
   });
+});
+
+// One action, one vocabulary.
+//
+// The taskbar ticker names work by react-query key; the rail names it by AI
+// task. Where a key and a displayed kind denote THE SAME action, a reader meets
+// two different sentences for one thing — the bar saying "Writing to Anna"
+// while the panel says "I'm drafting your reply."
+//
+// The pairing is HAND-MAINTAINED and cannot be otherwise: nothing in the types
+// connects a mutation key to the task it triggers, and that missing link is
+// exactly what made `enrich` look visible when it was not — the ticker has an
+// `enrich` key for work that never runs ai.TaskEnrich. So this list is a record
+// of collisions somebody checked by reading both sides, and its value is that
+// re-adding either half fails HERE rather than in front of a user.
+describe("the ticker and the rail never narrate one action twice", () => {
+  const COLLISIONS: readonly (readonly [
+    tickerKey: string,
+    railKind: string,
+  ])[] = [
+    // compose.tsx's draft mutation carries mutationKey ["email", entityId],
+    // and that mutation IS the draft_reply call.
+    ["email", "draft_reply"],
+  ];
+
+  it.each(COLLISIONS)(
+    "does not carry ticker key %s while the rail draws %s",
+    (tickerKey, railKind) => {
+      const drawn = displayedKinds().includes(railKind as never);
+      const narrated =
+        Object.hasOwn(WROTE, tickerKey) ||
+        Object.hasOwn(SAID, tickerKey) ||
+        Object.hasOwn(NAMED, tickerKey);
+      expect(drawn && narrated).toBe(false);
+    },
+  );
 });

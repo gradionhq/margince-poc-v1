@@ -25,7 +25,7 @@ const notDisplayed = (reason: string): NotDisplayed => ({
 });
 
 const WATCHED_BY_THE_ASKER = notDisplayed(
-  "an EDITORIAL choice, and named as one rather than dressed as a structural rule. growth_fit lands on the panel that asked for it and renders the band it returns, so a rail line would narrate what the reader is already looking at. cold_start is the weaker case and the honest reason to leave it here is that its preview path behaves the same way — not that the whole task does, because it also has an out-of-band arm that becomes an approval nobody is watching. If that arm ever wants a line it should get one; a task-level map cannot tell the two apart, and pretending otherwise is how this comment would start lying",
+  "growth_fit lands on the panel that asked for it and renders the band it returns, so a line here would narrate what the reader is already looking at. cold_start has a reason that does not depend on judgement at all: it runs during onboarding, and the onboarding routes are deliberately RAILLESS (shell.tsx) — there is no rail on screen for its line to appear on. That is why the two sit together despite cold_start also having an out-of-band arm that becomes an approval nobody watches: a task-level map could not separate those arms, and it does not have to, because neither can be drawn where the task runs",
 );
 const SYSTEM_SWEEP = notDisplayed(
   "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
@@ -85,6 +85,11 @@ export const ACTIVITY_LINE: Readonly<
     failed: "agent.activity.documentExtract.failed",
   },
 
+  // `queued` is written for all three and reachable by none of them: the router
+  // announces a call it is ABOUT to serve, never one waiting, and no carrier
+  // owns these tasks. The LineSet type is total over the state axis, so the key
+  // exists because the compiler requires it — not because a producer is
+  // missing. Saying so here saves the next reader the hunt.
   summarize: {
     queued: "agent.activity.summarize.queued",
     running: "agent.activity.summarize.running",

@@ -231,7 +231,12 @@ export const WROTE: Readonly<Record<string, [named: string, plain: string]>> = {
   "deal-edit": ["Editing the %s deal", "Editing a deal"],
   "deal-new": ["Creating a deal on %s", "Creating a deal"],
   dedupe: ["Deciding a duplicate of %s", "Deciding a duplicate"],
-  email: ["Writing to %s", "Writing an email"],
+  // No `email` entry, deliberately. The compose screen's draft mutation carries
+  // mutationKey ["email", entityId], which is the AI draft_reply call — and the
+  // rail now narrates that kind from the server's own feed. Naming it here too
+  // put one action into two vocabularies at once: the bar saying "Writing to
+  // Anna" while the panel said "I'm drafting your reply." Whichever wording is
+  // better, a reader should only meet one of them.
   enrich: ["Enriching %s", "Enriching a contact"],
   ingest: ["Ingesting %s", "Ingesting"],
   "lead-edit": ["Editing %s", "Editing a lead"],

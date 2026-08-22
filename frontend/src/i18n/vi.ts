@@ -2312,15 +2312,18 @@ export const vi = {
     "Tôi mới đọc được một phần tài liệu của bạn rồi dừng.",
   "agent.activity.documentExtract.failed":
     "Tôi không đọc được tài liệu của bạn.",
-  "agent.activity.summarize.queued": "Bản tóm tắt của bạn đang chờ được viết.",
-  "agent.activity.summarize.running": "Tôi đang viết bản tóm tắt của bạn.",
-  "agent.activity.summarize.done": "Bản tóm tắt của bạn đã sẵn sàng.",
+  "agent.activity.summarize.queued":
+    "Việc tổng hợp thông tin về công ty này đang chờ xử lý.",
+  "agent.activity.summarize.running":
+    "Tôi đang tổng hợp những gì tôi biết về công ty này.",
+  "agent.activity.summarize.done":
+    "Những gì tôi biết về công ty này đã sẵn sàng.",
   "agent.activity.summarize.degraded":
-    "Tôi mới viết được một phần bản tóm tắt của bạn rồi dừng.",
+    "Tôi mới tổng hợp được một phần về công ty này rồi dừng.",
   "agent.activity.summarize.failed":
-    "Tôi không hoàn thành được bản tóm tắt của bạn.",
+    "Tôi không hoàn thành được việc tổng hợp về công ty này.",
   "agent.activity.summarize.stalled":
-    "Bản tóm tắt của bạn chạy lâu bất thường. Có thể nó đã dừng.",
+    "Việc tổng hợp về công ty này kéo dài bất thường. Có thể nó đã dừng.",
   "agent.activity.draftReply.queued": "Thư trả lời của bạn đang chờ được soạn.",
   "agent.activity.draftReply.running": "Tôi đang soạn thư trả lời của bạn.",
   "agent.activity.draftReply.done": "Bản nháp thư trả lời của bạn đã sẵn sàng.",
