@@ -163,6 +163,75 @@ func linkedProject(t *testing.T, e *integration.SearchEnv, sourceID string) ids.
 	return projectID
 }
 
+// capturedStamp is the retention class and the frozen evidence on a captured
+// message — what the ladder must write BESIDE the link, in the same
+// transaction, because filing under a project qualifies the correspondence.
+type capturedStamp struct {
+	class       *string
+	evidence    int
+	projectName *string
+}
+
+func stampOfCaptured(t *testing.T, e *integration.SearchEnv, sourceID string) capturedStamp {
+	t.Helper()
+	var got capturedStamp
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT a.retention_class,
+			       (SELECT count(*) FROM activity_retention_evidence e
+			         WHERE e.activity_id = a.id AND e.basis = 'project_linked'),
+			       (SELECT max(e.project_name) FROM activity_retention_evidence e
+			         WHERE e.activity_id = a.id AND e.basis = 'project_linked')
+			  FROM activity a WHERE a.source_id = $1`, sourceID).
+			Scan(&got.class, &got.evidence, &got.projectName)
+	}); err != nil {
+		t.Fatalf("reading the captured message's stamp: %v", err)
+	}
+	return got
+}
+
+// The ladder classifies what it files. Capture is the highest-volume writer of
+// project links, so an unstamped one here is the most likely way a Handelsbrief
+// reaches an erasure unclassified — and the stamp commits with the link rather
+// than trailing it, so there is no window at all.
+func TestCaptureStampsTheMessageItFilesUnderAProject(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+	seed := newProjectSeeder(t, e)
+	seed.project(t, "ERP replacement", "ERP")
+
+	sync(t,
+		emailAbout("stamp1@acme.example", "", "[ERP] weekly status"),
+		emailAbout("stamp2@acme.example", "", "lunch on Thursday"),
+	)
+
+	filed := stampOfCaptured(t, e, "stamp1@acme.example")
+	if filed.class == nil {
+		t.Fatal("the ladder filed a message under a project and left it unclassified — an unstamped Handelsbrief is one the next erasure destroys")
+	}
+	if *filed.class != "commercial_correspondence" {
+		t.Errorf("retention_class = %q, want commercial_correspondence", *filed.class)
+	}
+	if filed.evidence != 1 {
+		t.Errorf("project_linked evidence rows = %d, want 1 — a class with nothing behind it is an assertion the controller cannot substantiate", filed.evidence)
+	}
+	if filed.projectName == nil || *filed.projectName != "ERP replacement" {
+		t.Errorf("evidence project_name = %v, want the project's name frozen at qualification", filed.projectName)
+	}
+
+	// The other half of the rule: mail belonging to no project is not
+	// correspondence this product must keep, and must NOT be stamped. A writer
+	// that stamped everything would pass the assertion above while quietly
+	// putting a six-year floor on the whole mailbox.
+	unfiled := stampOfCaptured(t, e, "stamp2@acme.example")
+	if unfiled.class != nil {
+		t.Errorf("a message the ladder filed under nothing carries class %q; only a project link qualifies it", *unfiled.class)
+	}
+	if unfiled.evidence != 0 {
+		t.Errorf("project_linked evidence rows = %d on an unattributed message, want 0", unfiled.evidence)
+	}
+}
+
 // The subject-key rung and every way it refuses: a key only counts bracketed,
 // never as a bare word, never as a substring, and never when two are named.
 func TestCaptureFilesAMessageUnderTheProjectItsSubjectNames(t *testing.T) {

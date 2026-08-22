@@ -269,6 +269,13 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			if _, err := tx.Exec(ctx, `UPDATE activity SET updated_at = now() WHERE id = $1`, id); err != nil {
 				return err
 			}
+			// Filing under a project is what qualifies the correspondence
+			// (D5), so the stamp commits with the link that earned it.
+			if in.EntityType == linkEntityProject {
+				if err := StampCorrespondenceForProject(ctx, tx, id, in.EntityID); err != nil {
+					return err
+				}
+			}
 			auditID, err := storekit.Audit(ctx, tx, "activity_relink", "activity", id.UUID, nil, map[string]any{
 				"entity_type": in.EntityType, "entity_id": in.EntityID, "replaced": in.ReplaceExistingOfType,
 			})

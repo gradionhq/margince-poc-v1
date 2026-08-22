@@ -35,15 +35,22 @@ type RestrictedRecord struct {
 	RestrictedUntil time.Time
 	Class           string
 	RedactedFields  []string
-	Deals           []QualifyingDeal
+	Deals           []QualifyingRecord
+	Projects        []QualifyingRecord
 }
 
-// QualifyingDeal is one transaction the evidence names. The name is the copy
-// FROZEN at qualification (activity_retention_evidence.deal_name), so it still
-// answers after the deal is renamed; a deal that has since been deleted has no
-// id to point at and is left out of the list, reported through the reason.
-// The json tags are how the aggregated evidence scans out of one statement.
-type QualifyingDeal struct {
+// QualifyingRecord is one record the evidence names as having qualified the
+// correspondence — a deal or a project. The name is the copy FROZEN at
+// qualification (activity_retention_evidence.deal_name / project_name), so it
+// still answers after the record is renamed; one that has since been deleted
+// has no id to point at and is left out of the list, reported through the
+// reason. The json tags are how the aggregated evidence scans out of one
+// statement.
+//
+// One type for both because the controller is being shown the same fact in
+// both cases — which record obliges us to keep this — and two identical
+// structs would be two spellings of one answer.
+type QualifyingRecord struct {
 	ID   ids.UUID `json:"id"`
 	Name string   `json:"name"`
 }
@@ -79,15 +86,19 @@ func ListRestrictedActivities(ctx context.Context, db *database.DB, cursor *stri
 	}
 	var page RestrictedPage
 	err = db.Tx(ctx, func(tx pgx.Tx) error {
-		// The deals ride the same statement as an aggregated array rather than
-		// a query per row: a page is bounded, the evidence per record is small,
-		// and one round trip keeps the page consistent with itself.
+		// The qualifying records ride the same statement as aggregated arrays
+		// rather than a query per row: a page is bounded, the evidence per
+		// record is small, and one round trip keeps the page consistent with
+		// itself.
 		rows, err := tx.Query(ctx, `
 			SELECT a.id, a.kind, a.occurred_at, a.restricted_at, a.restricted_until,
 			       a.retention_class, a.redacted_fields,
 			       coalesce((SELECT jsonb_agg(jsonb_build_object('id', e.deal_id, 'name', e.deal_name) ORDER BY e.deal_name)
 			                   FROM (SELECT DISTINCT deal_id, deal_name FROM activity_retention_evidence
-			                          WHERE activity_id = a.id AND deal_id IS NOT NULL) e), '[]'::jsonb)
+			                          WHERE activity_id = a.id AND deal_id IS NOT NULL) e), '[]'::jsonb),
+			       coalesce((SELECT jsonb_agg(jsonb_build_object('id', e.project_id, 'name', e.project_name) ORDER BY e.project_name)
+			                   FROM (SELECT DISTINCT project_id, project_name FROM activity_retention_evidence
+			                          WHERE activity_id = a.id AND project_id IS NOT NULL) e), '[]'::jsonb)
 			  FROM activity a
 			 WHERE a.restricted_at IS NOT NULL `+where+`
 			 ORDER BY a.restricted_at ASC, a.id ASC
@@ -99,7 +110,7 @@ func ListRestrictedActivities(ctx context.Context, db *database.DB, cursor *stri
 		for rows.Next() {
 			var r RestrictedRecord
 			if err := rows.Scan(&r.ActivityID, &r.Kind, &r.OccurredAt, &r.RestrictedAt, &r.RestrictedUntil,
-				&r.Class, &r.RedactedFields, &r.Deals); err != nil {
+				&r.Class, &r.RedactedFields, &r.Deals, &r.Projects); err != nil {
 				return err
 			}
 			page.Records = append(page.Records, r)
