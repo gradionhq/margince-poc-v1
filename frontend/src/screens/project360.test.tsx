@@ -110,6 +110,36 @@ describe("ProjectScreen", () => {
     ).toBeTruthy();
   });
 
+  it("offers Relink and Reply on a timeline row", async () => {
+    const user = userEvent.setup();
+    projectsBackend({
+      view: project360({
+        activities: {
+          data: [
+            {
+              id: "act-1",
+              kind: "email",
+              subject: "Kickoff agenda",
+              occurred_at: "2026-07-01T09:00:00Z",
+              is_done: false,
+              source: "manual",
+              captured_by: "human:u-1",
+              created_at: "2026-07-01T09:00:00Z",
+              updated_at: "2026-07-01T09:00:00Z",
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        },
+      }),
+    });
+    render(<ProjectScreen id="pr-1" />);
+    await screen.findByText("Kickoff agenda");
+
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Relink" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
   it("says a withheld section is hidden rather than drawing it empty", async () => {
     projectsBackend({
       view: project360({

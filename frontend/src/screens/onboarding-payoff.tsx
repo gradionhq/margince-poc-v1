@@ -247,6 +247,10 @@ export function PayoffMessage({
       <ul className="ob-payoff-next" role="list">
         <li>{t("ob.payoff.defaults")}</li>
         <li>{t("ob.payoff.seats")}</li>
+        <li>
+          {t("ob.payoff.projects")}{" "}
+          <a href="#/projects">{t("ob.payoff.projectsLink")}</a>
+        </li>
       </ul>
     </section>
   );
