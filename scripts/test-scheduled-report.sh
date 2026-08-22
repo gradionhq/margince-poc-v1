@@ -124,19 +124,25 @@ expect "a similar title is a different finding" \
 # that filed the issue and dropped MAIN_SUSPECTS would look identical from the
 # outside and be worth nothing.
 
-readonly HEALTH_TITLE="main is red: the integration lane fails on the tip"
+readonly INTEGRATION_TITLE="main is red: the integration lane fails on the tip"
+readonly FRONTEND_TITLE="main is red: the frontend lane fails on the tip"
 readonly SUSPECTS="- \`deadbeef\` Some Author — the commit that did it"
 
-# expect_health <name> <expected-actions> <suspects>
+# expect_health <name> <lane-result-variable> <expected-title> <suspects>
+#
+# The lane is a parameter rather than baked in, so an arm added to the reporter
+# is covered by asking for it here instead of by copying this function. A copy
+# would pass on the day the shared assertion below stopped holding.
 expect_health() {
-	local name="$1" want="$2" suspects="$3" out status got body
+	local name="$1" lane="$2" title="$3" suspects="$4" out status got body
+	local want="create $title"
 	export ACTION_LOG="$stub_dir/actions"
 	export BODY_LOG="$stub_dir/body"
 	: >"$ACTION_LOG"
 	: >"$BODY_LOG"
 	set +e
-	out="$(OPEN_TITLES="" GH_TOKEN=stub REPO=owner/repo RUN_URL=https://example.test/run/1 \
-		MAIN_INTEGRATION_RESULT=failure MAIN_SUSPECTS="$suspects" \
+	out="$(env OPEN_TITLES="" GH_TOKEN=stub REPO=owner/repo RUN_URL=https://example.test/run/1 \
+		"$lane=failure" MAIN_SUSPECTS="$suspects" \
 		"$root/scripts/scheduled-report.sh" 2>&1)"
 	status=$?
 	set -e
@@ -160,12 +166,18 @@ expect_health() {
 }
 
 expect_health "a red integration lane on main is filed with its suspect range" \
-	"create $HEALTH_TITLE" "$SUSPECTS"
+	MAIN_INTEGRATION_RESULT "$INTEGRATION_TITLE" "$SUSPECTS"
 
 # No range computed is a degraded report, not a silent one: the issue still has to
 # exist, because "main is red" is worth filing even when the window is unknown.
 expect_health "a red lane with no range still files" \
-	"create $HEALTH_TITLE" ""
+	MAIN_INTEGRATION_RESULT "$INTEGRATION_TITLE" ""
+
+# The frontend arm. It carries a second obligation the other two do not: while it
+# is red main's SonarCloud analysis is deliberately not refreshed, so the issue is
+# the only place a reader learns the quality gate's verdict has stopped moving.
+expect_health "a red frontend lane on main is filed with its suspect range" \
+	MAIN_FRONTEND_RESULT "$FRONTEND_TITLE" "$SUSPECTS"
 
 if [ "$failures" -ne 0 ]; then
 	echo "FAIL: $failures case(s)" >&2

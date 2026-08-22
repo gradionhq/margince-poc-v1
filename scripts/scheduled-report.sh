@@ -236,6 +236,30 @@ commit and reads as red for a reason its author did not cause."\
     || unreported=1
 fi
 
+if [ "${MAIN_FRONTEND_RESULT:-}" = "failure" ]; then
+  report "main is red: the frontend lane fails on the tip" bug \
+"The SPA lane (biome + vitest + tsc + build) failed against \`main\` on the
+two-hourly health check: $RUN_URL
+
+The frontend was the one area this health check never asked about. It matters
+more here than the count of lanes suggests: the change classifier skips the
+frontend jobs for a commit touching no frontend path, and a skipped required
+check is the same colour as a passing one — so a red SPA on the tip used to wait
+for whoever's pull request happened to touch \`frontend/\` next.
+
+This lane is also what produces main's frontend coverage report, so while it is
+red main's SonarCloud analysis is not refreshed at all. That is deliberate — a
+scan without the lcov publishes every TypeScript line as uncovered, which is a
+worse answer than a stale one — but it means the quality gate's reading for
+\`main\` is frozen until this is fixed.
+
+${MAIN_SUSPECTS:-_no suspect range was computed for this run._}
+
+Reproduce locally with \`make check-fe\` on \`main\`. The run above names which of
+the three legs went red; only one of them has to be reproduced."\
+    || unreported=1
+fi
+
 if [ "$unreported" -ne 0 ]; then
   echo "FAIL: at least one finding could not be filed — the run above names what was broken, but an issue for it does not exist" >&2
   exit 1

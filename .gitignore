@@ -1,6 +1,11 @@
 /bin/
 *.test
 coverage.out
+# The extension units' merged profile (make test-extensions EXT_COVER_OUT=…).
+# Same debris as coverage.out and it was never listed: only CI wrote it until
+# main-health's backend gate started writing it too, and now anyone reproducing
+# that gate locally has it in `git status`.
+coverage-extensions.out
 .env
 .build/
 .DS_Store
