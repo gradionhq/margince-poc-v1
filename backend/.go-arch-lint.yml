@@ -166,13 +166,9 @@ deps:
   integrations:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
-  # yaml: lifecycle_test.go derives the deal-room state vocabulary by reading
-  # api/crm.yaml itself rather than restating it, so a state added upstream
-  # reaches the test instead of defaulting silently to publishable. Same
-  # posture the root fitness tests take against the same document.
   dealrooms:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi, yaml]
+    canUse: [pgx, oapi]
   deals:
     mayDependOn: [contracts, platform]
     # fpdf backs offer_pdf.go's branded PDF render (offers-depth arc 4a
