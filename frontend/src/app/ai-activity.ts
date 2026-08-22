@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { throwProblem } from "../screens/common";
+import { displayedKinds } from "./ai-activity-lines";
 
 type AiActivityItem = components["schemas"]["AiActivityItem"];
 
@@ -57,7 +58,25 @@ export function useAiActivity(): AiActivity {
     queryKey: ACTIVITY_KEY,
     enabled: visible,
     queryFn: async () => {
-      const { data, error } = await api.GET("/me/ai-activity");
+      // The rail asks for the kinds it draws. Without this the server's bounds
+      // fall on the complete record and can spend all ten `recent` slots on
+      // work this surface renders nothing for.
+      //
+      // An empty list would FAIL OPEN, not closed, which is why it is refused
+      // here rather than sent: openapi-fetch's query serializer drops a
+      // zero-length array entirely, so the request would carry no `kinds` at
+      // all and the server would answer with the complete record — the exact
+      // failure this filter exists to prevent, and the server's own minItems /
+      // 422 guard would never see it.
+      const kinds = displayedKinds();
+      if (kinds.length === 0) {
+        throw new Error(
+          "the rail narrates no kinds, so asking the server for them would silently ask for all of them",
+        );
+      }
+      const { data, error } = await api.GET("/me/ai-activity", {
+        params: { query: { kinds } },
+      });
       if (error) {
         throwProblem(error);
       }

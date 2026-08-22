@@ -7,22 +7,27 @@ package backendarch
 // task the AI contract declares.
 //
 // It lives at the ROOT because a module may not import the ai module to check
-// itself: activities owns document readings, ai owns the task vocabulary, and
-// a module never imports a sibling. The declared side is DERIVED from the
-// generated table rather than listed here — a list would need maintaining, and
-// the maintenance is the thing that gets forgotten.
+// itself: activities owns document readings, agents owns scheduled runs, ai
+// owns the task vocabulary, and a module never imports a sibling.
 //
 // What it catches is narrow and real: ai_task_run.ai_task is a free-text column
 // the projection copies straight out of the event, so an emitter that writes a
 // task name the contract does not have produces a row nothing can join to a
 // cost, a routing decision or a certification record — and nothing at runtime
 // says a word about it.
+//
+// BOTH sides are derived. The emitted side used to be a hand-written map, and
+// it held one entry while two emitters existed — the runner's task had been
+// live for a release and this gate had never seen it. A list of who emits is
+// the same thing that goes stale as a list of who should, so the emitters here
+// are read from their own exported constants and the registry that routes them.
 
 import (
 	"slices"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -35,10 +40,16 @@ func TestEveryEmittedAITaskIsDeclaredInTheContract(t *testing.T) {
 		t.Fatal("derived no tasks from the generated contract table; this gate would pass vacuously")
 	}
 
-	// One entry per emitter of ai_task into the projection. A new source adds
-	// its constant here in the same change that starts emitting it.
+	// The carriers name their task in their own exported constant; the router
+	// announces under the task's own name, so the registry IS its emitted set.
 	emitted := map[string]string{
 		"activities.ExtractionAITask": activities.ExtractionAITask,
+		"runner.ActivityAITask":       runner.ActivityAITask,
+	}
+	for task, source := range ai.RailOwners() {
+		if source == ai.SourceRouter {
+			emitted["the router, on behalf of "+task] = task
+		}
 	}
 	for name, task := range emitted {
 		if !slices.Contains(declared, task) {

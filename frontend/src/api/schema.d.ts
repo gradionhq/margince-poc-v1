@@ -8300,6 +8300,14 @@ export interface paths {
          *     `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person
          *     history is a per-person activity ledger, which this installation does not keep.
          *
+         *     `kinds` is how a client that renders only part of the record asks for its part.
+         *     Every AI task reports into this feed, so a caller that shows three kinds and is
+         *     served the newest ten of twenty-three can be handed ten it will draw nothing for
+         *     — the bound would fall on rows the reader never sees, and the rail would go blank
+         *     while its work was reported correctly. Naming the kinds moves the bound inside
+         *     the client's own set. Omit it to receive the complete record, which is what an
+         *     auditor or an operator's client wants.
+         *
          *     Read-only; no audit or event row (EVT-NOEVT-3).
          */
         get: operations["getMyAiActivity"];
@@ -16876,18 +16884,28 @@ export interface components {
             /** @description Occurrences that SETTLED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-settled first, at most 10. */
             recent: components["schemas"]["AiActivityItem"][];
         };
+        /**
+         * @description What kind of AI work an occurrence is. Every AI task this build can run reports here,
+         *     because a task that reports nothing is AI work the product performed and then denied.
+         *     What a reader is SHOWN is a separate decision and belongs to the client: a complete
+         *     record is the server's obligation, an edited one is the interface's.
+         *
+         *     Three names come from a durable carrier that owns its own occurrence and can say
+         *     queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+         *     `document_extract` is a reading of an attached document a human asked for. Every other
+         *     name is an api/ai-tasks.yaml task announced by the router on the task's own behalf —
+         *     settled when it appears, because the router learns of a call once the call is over.
+         *
+         *     Its own schema because the item that reports a kind and the query that asks for kinds
+         *     must be ONE list — two copies of a vocabulary are two vocabularies as soon as somebody
+         *     edits one.
+         * @enum {string}
+         */
+        AiActivityKind: "morning_brief" | "overnight_at_risk_sweep" | "document_extract" | "brief_ranking" | "capture_classify" | "capture_counterparty_verdict" | "cert_judge" | "cold_start" | "deal_health" | "draft_reply" | "enrich" | "growth_fit" | "nl_search" | "offer_draft" | "rate_extract" | "signal_extract" | "site_extract" | "site_fact_extract" | "site_triage" | "summarize" | "transcript" | "transcript_propose" | "voice_build";
         AiActivityItem: {
             /** Format: uuid */
             id: string;
-            /**
-             * @description What kind of AI work this occurrence is. A kind absent here renders no line, which
-             *     is a better answer than a server that silently omits work the AI really did.
-             *
-             *     The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
-             *     reading of an attached document, requested by a human from the record it hangs on.
-             * @enum {string}
-             */
-            kind: "morning_brief" | "overnight_at_risk_sweep" | "document_extract";
+            kind: components["schemas"]["AiActivityKind"];
             /**
              * @description `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.
              *
@@ -34813,7 +34831,19 @@ export interface operations {
     };
     getMyAiActivity: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Restrict both arrays to these kinds of AI work, applied BEFORE the bounds.
+                 *     Omitted means every kind.
+                 *
+                 *     An empty list is a 422, and so is a name this enum does not carry. Both come
+                 *     back as an empty feed, and an empty feed is the TRUE answer for an AI at rest —
+                 *     so serving either would report "the AI did nothing" about a question the server
+                 *     never actually asked. A client that lost its list and a client that typed the
+                 *     vocabulary by hand both get told, rather than reassured.
+                 */
+                kinds?: components["schemas"]["AiActivityKind"][];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -34830,6 +34860,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listOrganizationContracts: {

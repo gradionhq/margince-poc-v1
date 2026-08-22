@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { useAiActivity } from "./ai-activity";
+import { displayedKinds, lineFor } from "./ai-activity-lines";
 
 // What the rail asks the runner, and how often. Three things here can only be
 // wrong invisibly, which is why each has its own case: a poll left running for
@@ -56,15 +57,17 @@ function wrapper({ children }: { children: ReactNode }) {
  */
 function mount(answer: () => Response | Promise<Response>) {
   const reads: string[] = [];
+  const urls: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
       reads.push(new URL(request.url).pathname);
+      urls.push(request.url);
       return answer();
     }),
   );
   const { result, unmount } = renderHook(() => useAiActivity(), { wrapper });
-  return { result, unmount, reads };
+  return { result, unmount, reads, urls };
 }
 
 /** Lets every timer up to `ms` fire, and every promise they start settle. */
@@ -261,5 +264,35 @@ describe("a read that has not answered", () => {
     expect(result.current.running).toHaveLength(1);
     expect(result.current.working).toBe(false);
     unmount();
+  });
+});
+
+// The rail asks for the kinds it draws, in the shape the server parses.
+//
+// Both halves are keyed on one wire spelling and only one of them is TypeScript,
+// so a mismatch is silent in exactly one direction: the server reads fewer kinds
+// than were asked for and answers 200 with a shorter feed. `explode: true` means
+// one `kinds=` per value, and this is the half of that agreement a frontend test
+// can hold — the other half is an integration case against the real handler.
+describe("the kinds filter", () => {
+  it("names each displayed kind as its own query parameter", async () => {
+    const { urls } = mount(() => jsonResponse(activity([])));
+    await advance(0);
+
+    const asked = new URL(urls[0]).searchParams.getAll("kinds");
+    expect(
+      asked,
+      "the rail asked for no kinds, so the server's bounds fall on the whole record",
+    ).not.toEqual([]);
+    expect(asked).toEqual(displayedKinds());
+  });
+
+  it("asks for nothing it cannot draw", async () => {
+    const { urls } = mount(() => jsonResponse(activity([])));
+    await advance(0);
+
+    for (const kind of new URL(urls[0]).searchParams.getAll("kinds")) {
+      expect(lineFor({ kind, state: "done" }, (key) => key)).not.toBeNull();
+    }
   });
 });

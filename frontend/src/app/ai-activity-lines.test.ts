@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, lineFor } from "./ai-activity-lines";
+import { ACTIVITY_LINE, displayedLines, lineFor } from "./ai-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
 // `agent.activity.` key nothing names is copy three translators paid for and
@@ -11,7 +11,7 @@ import { ACTIVITY_LINE, lineFor } from "./ai-activity-lines";
 describe("the activity copy set", () => {
   it("is exactly the key set the map names", () => {
     const named = new Set<string>(
-      Object.values(ACTIVITY_LINE).flatMap((byState) => Object.values(byState)),
+      displayedLines().flatMap(([, byState]) => Object.values(byState)),
     );
     const inCatalog = Object.keys(en).filter((key) =>
       key.startsWith("agent.activity."),
@@ -45,10 +45,10 @@ describe("the activity copy set", () => {
   ])(
     "never says done or ready about a run that stopped early ($locale)",
     ({ catalog, done, ready }) => {
-      for (const byState of Object.values(ACTIVITY_LINE)) {
+      for (const [, byState] of displayedLines()) {
         const key = byState.degraded;
         if (key === undefined) continue;
-        const degraded = catalog[key].toLowerCase();
+        const degraded = catalog[key as keyof typeof catalog].toLowerCase();
         for (const word of [...done, ...ready]) {
           expect(degraded).not.toContain(word);
         }
@@ -61,27 +61,48 @@ describe("the activity copy set", () => {
   // somebody remembered to write down, and that list is what goes stale. What
   // is left for runtime is that each key resolves to real copy: a key that
   // typechecks but names no message renders as the key string to a reader.
-  it("names copy that exists, for every kind and state", () => {
+  it("names copy that exists, for every displayed kind and state", () => {
     let checked = 0;
-    for (const [kind, byState] of Object.entries(ACTIVITY_LINE)) {
+    for (const [kind, byState] of displayedLines()) {
       for (const [state, key] of Object.entries(byState)) {
-        expect(en[key], `${kind}.${state} -> ${key}`).toBeTruthy();
+        expect(
+          en[key as keyof typeof en],
+          `${kind}.${state} -> ${key}`,
+        ).toBeTruthy();
         checked++;
       }
     }
     // A map that lost its entries would pass every assertion above.
-    expect(checked).toBeGreaterThanOrEqual(
-      Object.keys(ACTIVITY_LINE).length * 6,
+    expect(checked).toBe(displayedLines().length * 6);
+    // And a map that narrated NOTHING would pass that too.
+    expect(displayedLines().length).toBeGreaterThan(0);
+  });
+
+  // A kind that is not narrated says why, in a sentence a reader of this file
+  // can weigh. An empty reason is the same silence the rail's totality exists
+  // to prevent, one level further in: it records that somebody chose, without
+  // recording what they chose it for.
+  it("gives every undisplayed kind a reason", () => {
+    const undisplayed = Object.entries(ACTIVITY_LINE).filter(
+      ([, entry]) => "notDisplayed" in entry,
     );
+    expect(
+      undisplayed.length,
+      "no kind is undisplayed, so this proves nothing",
+    ).toBeGreaterThan(0);
+    for (const [kind, entry] of undisplayed) {
+      const reason = "notDisplayed" in entry ? entry.notDisplayed : "";
+      expect(reason.trim(), kind).not.toBe("");
+    }
   });
 
   // The one state a reader must always be told about, whatever the work was.
   // It is the only state no writer produces — the server derives it — so a kind
   // that forgot it would go silent for exactly the case it exists to report.
-  it("gives every kind a line for the derived stalled state", () => {
-    for (const [kind, byState] of Object.entries(ACTIVITY_LINE)) {
+  it("gives every displayed kind a line for the derived stalled state", () => {
+    for (const [kind, byState] of displayedLines()) {
       expect(byState.stalled, kind).toBeDefined();
-      expect(en[byState.stalled], kind).toBeTruthy();
+      expect(en[byState.stalled as keyof typeof en], kind).toBeTruthy();
     }
   });
 });
@@ -105,6 +126,10 @@ describe("lineFor", () => {
   it.each([
     ["an unknown state", { kind: "morning_brief", state: "hibernating" }],
     ["an unknown kind", { kind: "weekly_digest", state: "running" }],
+    // The third way to draw nothing, and the one the server now produces by
+    // the thousand: a kind this build reports and deliberately does not
+    // narrate. It must read as silence, not as a message key.
+    ["a kind the rail does not narrate", { kind: "summarize", state: "done" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
   });

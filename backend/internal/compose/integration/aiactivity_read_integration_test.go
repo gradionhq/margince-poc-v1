@@ -32,7 +32,7 @@ import (
 func (f *readingFixture) feed(t *testing.T, user ids.UUID) (live, settled []aiactivity.Item) {
 	t.Helper()
 	live, settled, err := aiactivity.NewStore(f.env.DB()).
-		Mine(f.env.As(user, nil, principal.Permissions{}), f.midnight(t))
+		Mine(f.env.As(user, nil, principal.Permissions{}), f.midnight(t), nil)
 	if err != nil {
 		t.Fatalf("Mine: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestASettledOccurrenceIsNeverStalled(t *testing.T) {
 func TestAFeedWithNoPersonIsRefused(t *testing.T) {
 	f := newReadingFixture(t)
 	if _, _, err := aiactivity.NewStore(f.env.DB()).
-		Mine(context.Background(), f.midnight(t)); err == nil {
+		Mine(context.Background(), f.midnight(t), nil); err == nil {
 		t.Fatal("a personal read with nobody bound must be refused, not answered")
 	}
 }

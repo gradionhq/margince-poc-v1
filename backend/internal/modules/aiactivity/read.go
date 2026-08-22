@@ -94,6 +94,13 @@ const StateStalled = "stalled"
 //	         started at 23:50 and finished at 00:10 belongs in today's feed;
 //	         keyed on its start it would fall out of settled AND have already
 //	         left live, so it would vanish from the rail entirely.
+//	kinds    NULL means every kind, and the predicate is written so that the
+//	         common case adds no work: `$7::text[] IS NULL OR kind = ANY($7)`
+//	         is a constant-false-free branch the planner discards outright when
+//	         the argument is NULL. It sits INSIDE each arm rather than around
+//	         the union because the bound has to fall on the client's own set —
+//	         filtering the result would hand back ten rows the caller draws
+//	         nothing for and call the rail empty.
 const feedSQL = `
 (
   SELECT true AS live, id, kind,
@@ -103,6 +110,7 @@ const feedSQL = `
     FROM ai_task_run
    WHERE actor_user_id = $1
      AND state IN ('queued','running')
+     AND ($7::text[] IS NULL OR kind = ANY($7))
    ORDER BY queued_at DESC, id DESC
    LIMIT $6
 )
@@ -115,6 +123,7 @@ UNION ALL
    WHERE actor_user_id = $1
      AND state IN ('done','degraded','failed')
      AND finished_at >= $2
+     AND ($7::text[] IS NULL OR kind = ANY($7))
    ORDER BY finished_at DESC, id DESC
    LIMIT $3
 )`
@@ -128,14 +137,26 @@ UNION ALL
 // standing between that and a leak would be every caller remembering to pass
 // its own — the shape this repo gates against everywhere else. Here there is
 // nothing to remember: another person's feed cannot be expressed.
-func (s *Store) Mine(ctx context.Context, startOfToday time.Time) (live, settled []Item, err error) {
+// kinds narrows both arrays before the bounds. Nil means every kind — the
+// complete record — and that is deliberately what an omitted filter gives:
+// every AI task reports here, so the server's answer is complete unless a
+// client says which part of it that client draws.
+func (s *Store) Mine(ctx context.Context, startOfToday time.Time, kinds []string) (live, settled []Item, err error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.UserID.IsZero() {
 		return nil, nil, fmt.Errorf("aiactivity: a personal read needs an authenticated person")
 	}
+	// An EMPTY slice is not an absent one and must not collapse into it: a
+	// caller that asked for no kinds gets no rows, where nil asks for all of
+	// them. Conflating the two would answer "the AI did nothing" to a client
+	// whose list went missing — the one reply indistinguishable from the truth.
+	var filter any
+	if kinds != nil {
+		filter = kinds
+	}
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, txErr := tx.Query(ctx, feedSQL,
-			actor.UserID, startOfToday, recentBound, DegradeReasonBound, SummaryBound, liveBound)
+			actor.UserID, startOfToday, recentBound, DegradeReasonBound, SummaryBound, liveBound, filter)
 		if txErr != nil {
 			return txErr
 		}

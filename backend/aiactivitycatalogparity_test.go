@@ -21,20 +21,26 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 )
 
 // documentReadingKind is the one kind that is not a scheduled spec: a human
-// asking for an attached document to be read. Named here rather than derived
-// because the emitter is a plain constant in another module, and this gate's
-// job is to notice when the two sets stop agreeing.
-const documentReadingKind = "document_extract"
+// asking for an attached document to be read.
+//
+// Read from the EMITTER's own exported constant rather than restated, so a
+// carrier that renames its kind fails here instead of leaving this gate
+// vouching for a name nothing writes. Its ai_task and its display kind are one
+// string for this carrier — the reading IS the task — which is why one constant
+// answers both.
+const documentReadingKind = activities.ExtractionAITask
 
 func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
-	declared := crmYAMLEnum(t, "AiActivityItem", "kind")
+	declared := crmYAMLNamedEnum(t, "AiActivityKind")
 	if len(declared) == 0 {
-		t.Fatal("AiActivityItem declares no kind enum; this gate would pass vacuously")
+		t.Fatal("AiActivityKind declares no enum; this gate would pass vacuously")
 	}
 	for _, kind := range producedKinds() {
 		if !slices.Contains(declared, kind) {
@@ -45,8 +51,14 @@ func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	}
 }
 
-// producedKinds is every kind an emitter can announce: the scheduled specs, and
-// the document reading a human asks for.
+// producedKinds is every kind an emitter can announce.
+//
+// Three producers, and the third is why this function is derived rather than
+// listed: the ROUTER announces on behalf of every task the rail registry leaves
+// to it, under the task's own name. That set grows the moment somebody declares
+// a task in api/ai-tasks.yaml, so a list here would be one edit behind the
+// contract forever — which is the shape of the defect that left seventeen
+// shipped tasks reporting nothing at all.
 //
 // Both directions of this parity are checked against THIS list, which is why it
 // is one function rather than two inline slices — a producer named in only one
@@ -57,6 +69,11 @@ func producedKinds() []string {
 	for _, spec := range runner.Catalog() {
 		out = append(out, spec.Name)
 	}
+	for task, source := range ai.RailOwners() {
+		if source == ai.SourceRouter {
+			out = append(out, task)
+		}
+	}
 	return out
 }
 
@@ -64,7 +81,7 @@ func producedKinds() []string {
 // no reader will see, and a promise the server cannot keep.
 func TestEveryContractKindHasSomethingThatProducesIt(t *testing.T) {
 	produced := producedKinds()
-	for _, kind := range crmYAMLEnum(t, "AiActivityItem", "kind") {
+	for _, kind := range crmYAMLNamedEnum(t, "AiActivityKind") {
 		if !slices.Contains(produced, kind) {
 			t.Errorf("the contract declares kind %q and nothing announces it — either an emitter was "+
 				"removed and the enum kept its name, or the name is aspirational. Drop it, or point this "+

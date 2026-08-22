@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -154,11 +155,26 @@ type callStore = CallRecorder
 type CallMeter struct {
 	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
 	db *database.DB
+	// log carries an announce that could not be made. The trace itself never
+	// reports through here — Record's error is the caller's to handle — but the
+	// rail announcement is deliberately unable to fail a working call, so the
+	// log line is the only place its absence is visible.
+	log *slog.Logger
 }
 
 // NewCallMeter constructs the CallMeter that writes ai_call trace rows
 // (and, when payload capture is on, the linked ai_call_payload row).
-func NewCallMeter(db *database.DB) *CallMeter { return &CallMeter{db: db} }
+func NewCallMeter(db *database.DB) *CallMeter {
+	return &CallMeter{db: db, log: slog.Default()}
+}
+
+// WithLogger points the meter's announce-failure log at a caller's logger.
+func (m *CallMeter) WithLogger(log *slog.Logger) *CallMeter {
+	if log != nil {
+		m.log = log
+	}
+	return m
+}
 
 // Record writes every attempt's ai_call row — and, for whichever attempt
 // carries a Payload (only ever the terminal one), the ai_call_payload
@@ -169,63 +185,81 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 		return nil
 	}
 	return m.db.Tx(ctx, func(tx pgx.Tx) error {
+		if err := m.recordAttempts(ctx, tx, attempts); err != nil {
+			return err
+		}
+		// The occurrence rides the same transaction as the rows it describes,
+		// so the trace and the rail can never disagree about whether the call
+		// happened. Only the terminal attempt is announced: a logical call that
+		// walked three rungs is one piece of work, not three.
 		for _, c := range attempts {
-			// kind and served_identity_source carry a CHECK constraint, not
-			// just a SQL DEFAULT — the columns are always listed explicitly
-			// below, so an unset Go zero-value would reach the constraint as
-			// '""', not fall back to the schema's default. Mirror the
-			// schema's own defaults here so a caller that does not care
-			// about these fields (most non-router test fixtures) still
-			// writes a valid row.
-			kind := c.Kind
-			if kind == "" {
-				kind = callKindCompletion
-			}
-			servedSource := c.ServedIdentitySource
-			if servedSource == "" {
-				servedSource = servedIdentitySourceConfigured
-			}
-			contextScopes := c.ContextScopes
-			if contextScopes == nil {
-				contextScopes = []string{}
-			}
-			var callID ids.UUID
-			err := tx.QueryRow(
-				ctx, `
-				INSERT INTO ai_call (
-				  correlation_id, task, tier, provider, model_id,
-				  request_fingerprint, context_scopes, context_fingerprint,
-				  context_bytes, context_tokens_estimate,
-				  tokens_in, tokens_out, reasoning_tokens,
-				  cached_tokens, cache_write_tokens, latency_ms, cache_hit, degraded, error_sentinel, agent_run_id,
-				  logical_call_id, attempt, is_terminal, attempt_reason, kind,
-				  served_model, served_identity_source, cache_off, config_hash)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,
-				  $21,$22,$23,$24,$25,$26,$27,$28,$29)
-				RETURNING id`,
-				c.CorrelationID, string(c.Task), string(c.Tier), c.Provider, c.ModelID,
-				c.RequestFingerprint, contextScopes, c.ContextFingerprint,
-				c.ContextBytes, c.ContextTokensEstimate, c.TokensIn, c.TokensOut, c.ReasoningTokens,
-				c.CachedTokens, c.CacheWriteTokens, c.LatencyMS, c.CacheHit, c.Degraded, c.ErrorSentinel, c.AgentRunID,
-				c.LogicalCallID, c.Attempt, c.IsTerminal, c.AttemptReason, kind,
-				c.ServedModel, servedSource, c.CacheOff, c.ConfigHash,
-			).Scan(&callID)
-			if err != nil {
-				return fmt.Errorf("ai: recording call: %w", err)
-			}
-			if c.Payload == nil {
-				continue
-			}
-			_, err = tx.Exec(ctx, `
-				INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload)
-				VALUES ($1, $2, $3)`,
-				callID, c.Payload.Request, c.Payload.Response)
-			if err != nil {
-				return fmt.Errorf("ai: recording call payload: %w", err)
+			if c.IsTerminal {
+				m.announceRailBestEffort(ctx, tx, c)
 			}
 		}
 		return nil
 	})
+}
+
+// recordAttempts writes every buffered attempt of one logical call, and the
+// ai_call_payload row of whichever attempt carries content.
+func (m *CallMeter) recordAttempts(ctx context.Context, tx pgx.Tx, attempts []Call) error {
+	for _, c := range attempts {
+		// kind and served_identity_source carry a CHECK constraint, not
+		// just a SQL DEFAULT — the columns are always listed explicitly
+		// below, so an unset Go zero-value would reach the constraint as
+		// '""', not fall back to the schema's default. Mirror the
+		// schema's own defaults here so a caller that does not care
+		// about these fields (most non-router test fixtures) still
+		// writes a valid row.
+		kind := c.Kind
+		if kind == "" {
+			kind = callKindCompletion
+		}
+		servedSource := c.ServedIdentitySource
+		if servedSource == "" {
+			servedSource = servedIdentitySourceConfigured
+		}
+		contextScopes := c.ContextScopes
+		if contextScopes == nil {
+			contextScopes = []string{}
+		}
+		var callID ids.UUID
+		err := tx.QueryRow(
+			ctx, `
+			INSERT INTO ai_call (
+			  correlation_id, task, tier, provider, model_id,
+			  request_fingerprint, context_scopes, context_fingerprint,
+			  context_bytes, context_tokens_estimate,
+			  tokens_in, tokens_out, reasoning_tokens,
+			  cached_tokens, cache_write_tokens, latency_ms, cache_hit, degraded, error_sentinel, agent_run_id,
+			  logical_call_id, attempt, is_terminal, attempt_reason, kind,
+			  served_model, served_identity_source, cache_off, config_hash)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,
+			  $21,$22,$23,$24,$25,$26,$27,$28,$29)
+			RETURNING id`,
+			c.CorrelationID, string(c.Task), string(c.Tier), c.Provider, c.ModelID,
+			c.RequestFingerprint, contextScopes, c.ContextFingerprint,
+			c.ContextBytes, c.ContextTokensEstimate, c.TokensIn, c.TokensOut, c.ReasoningTokens,
+			c.CachedTokens, c.CacheWriteTokens, c.LatencyMS, c.CacheHit, c.Degraded, c.ErrorSentinel, c.AgentRunID,
+			c.LogicalCallID, c.Attempt, c.IsTerminal, c.AttemptReason, kind,
+			c.ServedModel, servedSource, c.CacheOff, c.ConfigHash,
+		).Scan(&callID)
+		if err != nil {
+			return fmt.Errorf("ai: recording call: %w", err)
+		}
+		if c.Payload == nil {
+			continue
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload)
+			VALUES ($1, $2, $3)`,
+			callID, c.Payload.Request, c.Payload.Response)
+		if err != nil {
+			return fmt.Errorf("ai: recording call payload: %w", err)
+		}
+	}
+	return nil
 }
 
 // EnsureConfig plants snap's row in ai_call_config if it does not already

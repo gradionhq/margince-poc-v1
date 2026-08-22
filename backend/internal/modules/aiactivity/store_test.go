@@ -61,7 +61,7 @@ func TestAChangeIsRefusedBeforeAnySQLWhenItsShapeCannotBeStored(t *testing.T) {
 // Answered, it would be a query with no predicate on the one column that makes
 // the feed personal — everybody's work, handed to whoever asked.
 func TestAPersonalReadWithNoPersonIsRefused(t *testing.T) {
-	_, _, err := NewStore(nil).Mine(context.Background(), time.Time{})
+	_, _, err := NewStore(nil).Mine(context.Background(), time.Time{}, nil)
 	if err == nil {
 		t.Fatal("expected a refusal for a read with no person")
 	}
