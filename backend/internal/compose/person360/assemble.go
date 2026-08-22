@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -123,6 +124,15 @@ func (s *Service) AssembleScoped(ctx context.Context, personID ids.PersonID, opt
 			return err
 		}
 		out.Person = person
+		// The scope is a read of the project, gated before any section
+		// filters on it — and as the whole read's refusal, not a section's:
+		// a page narrowed to a project the caller may not see has no honest
+		// sections at all.
+		if opts.ProjectID != nil {
+			if err := activities.RequireProjectScope(ctx, tx, *opts.ProjectID); err != nil {
+				return err
+			}
+		}
 
 		for _, section := range s.sections(personID, now, opts) {
 			if err := section.read(ctx, tx, &out); err != nil {
@@ -202,7 +212,7 @@ func (s *Service) sections(personID ids.PersonID, now time.Time, opts AssembleOp
 			return s.providerProfileSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedNextMeeting, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.nextMeetingSection(ctx, tx, personID, now, out)
+			return s.nextMeetingSection(ctx, tx, personID, now, opts, out)
 		}},
 		// LAST, and it has to be: the moments are derived from what the
 		// sections above gathered, so a moment can never cite evidence this

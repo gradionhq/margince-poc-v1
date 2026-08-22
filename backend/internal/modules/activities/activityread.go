@@ -112,6 +112,11 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	if err := ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
 		return nil, storekit.Page{}, err
 	}
+	if in.WithinProjectID != nil {
+		if err := RequireProjectScope(ctx, tx, *in.WithinProjectID); err != nil {
+			return nil, storekit.Page{}, err
+		}
+	}
 	limit := storekit.ClampLimit(in.Limit)
 	join, where, content, args, err := listActivitiesFilter(ctx, in)
 	if err != nil {

@@ -40,6 +40,13 @@ type scopeFixture struct {
 	onERP     string
 	onOther   string
 	unfiled   string
+	// One open task and one future meeting per engagement, so the next-steps,
+	// next-meeting and since-last-visit sections each have a row the scope
+	// must drop and a row it must keep.
+	erpTask      string
+	otherTask    string
+	erpMeeting   string
+	otherMeeting string
 	// otherAt is when the other engagement's mail arrived — the NEWEST
 	// exchange on the account, so an unscoped last-touch date is this one and
 	// a scoped read that still reports it has leaked.
@@ -72,18 +79,16 @@ func seedTwoEngagementAccount(t *testing.T, e *Env) scopeFixture {
 	// Three exchanges with the same contact on the same account: one per
 	// engagement, and one ordinary message nobody filed. Each is linked to
 	// the person AND the organization so both record pages read them.
-	mail := func(subject string, within *ids.ProjectID, occurredAt time.Time, others ...ids.UUID) string {
-		links := []activities.ActivityLinkInput{
+	log := func(in activities.LogActivityInput, subject string, within *ids.ProjectID, occurredAt time.Time, others ...ids.UUID) string {
+		in.Subject, in.OccurredAt = &subject, &occurredAt
+		in.Links = []activities.ActivityLinkInput{
 			{EntityType: "person", EntityID: person},
 			{EntityType: "organization", EntityID: org},
 		}
 		for _, other := range others {
-			links = append(links, activities.ActivityLinkInput{EntityType: "person", EntityID: other})
+			in.Links = append(in.Links, activities.ActivityLinkInput{EntityType: "person", EntityID: other})
 		}
-		logged, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
-			Kind: "email", Subject: &subject, Direction: strPtr("inbound"),
-			OccurredAt: &occurredAt, Links: links,
-		})
+		logged, _, err := e.Activities.LogActivity(admin, in)
 		if err != nil {
 			t.Fatalf("log %q: %v", subject, err)
 		}
@@ -98,12 +103,28 @@ func seedTwoEngagementAccount(t *testing.T, e *Env) scopeFixture {
 		return ids.UUID(logged.Id).String()
 	}
 
+	mail := func(subject string, within *ids.ProjectID, occurredAt time.Time, others ...ids.UUID) string {
+		return log(activities.LogActivityInput{Kind: "email", Direction: strPtr("inbound")}, subject, within, occurredAt, others...)
+	}
+	task := func(subject string, within *ids.ProjectID) string {
+		return log(activities.LogActivityInput{Kind: "task"}, subject, within, roomFixedNow.AddDate(0, 0, -1))
+	}
+	meeting := func(subject string, within *ids.ProjectID, startsAt time.Time) string {
+		return log(activities.LogActivityInput{Kind: "meeting", MeetingStatus: strPtr("booked")}, subject, within, startsAt)
+	}
 	otherAt := roomFixedNow.AddDate(0, 0, -1)
 	return scopeFixture{
 		person: person, org: org, erp: erp, bystander: bystander, otherAt: otherAt,
-		onERP:   mail("ERP cutover plan", &erp, roomFixedNow.AddDate(0, 0, -3)),
-		onOther: mail("Rack decommissioning", &migration, otherAt, bystander),
-		unfiled: mail("Invoice question", nil, roomFixedNow.AddDate(0, 0, -2)),
+		onERP:     mail("ERP cutover plan", &erp, roomFixedNow.AddDate(0, 0, -3)),
+		onOther:   mail("Rack decommissioning", &migration, otherAt, bystander),
+		unfiled:   mail("Invoice question", nil, roomFixedNow.AddDate(0, 0, -2)),
+		erpTask:   task("Send ERP cutover checklist", &erp),
+		otherTask: task("Book the rack haulier", &migration),
+		// The other engagement's meeting is the SOONER one, so an unscoped
+		// next-meeting read names it and a scoped read that still does has
+		// leaked the other project.
+		erpMeeting:   meeting("ERP go-live rehearsal", &erp, roomFixedNow.AddDate(0, 0, 5)),
+		otherMeeting: meeting("Rack move walkthrough", &migration, roomFixedNow.AddDate(0, 0, 2)),
 	}
 }
 
@@ -148,8 +169,8 @@ func TestTimelineWithoutAScopeStillSeesEveryEngagement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list unscoped: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("unscoped timeline = %d rows, want 3 — an absent scope narrows nothing", len(got))
+	if len(got) != 7 {
+		t.Fatalf("unscoped timeline = %d rows, want all 7 — an absent scope narrows nothing", len(got))
 	}
 }
 
