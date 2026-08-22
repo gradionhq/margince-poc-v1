@@ -1407,6 +1407,8 @@ public.deal_room_participant.deal_room_participant_capability_check CHECK ((capa
 public.deal_room_participant.deal_room_participant_email_norm CHECK ((email = lower(email)))
 public.deal_room_participant.deal_room_participant_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES app_user(id) ON DELETE SET NULL
 public.deal_room_participant.deal_room_participant_pkey PRIMARY KEY (id)
+public.deal_room_participant.deal_room_participant_preview_named CHECK (((NOT preview) OR (invited_by IS NOT NULL)))
+public.deal_room_participant.deal_room_participant_preview_reads_only CHECK (((NOT preview) OR (capability = 'view'::text)))
 public.deal_room_participant.deal_room_participant_room_fkey FOREIGN KEY (room_id) REFERENCES deal_room(id) ON DELETE CASCADE
 public.deal_room_participant.deal_room_participant_touch CREATE TRIGGER deal_room_participant_touch BEFORE UPDATE ON public.deal_room_participant FOR EACH ROW EXECUTE FUNCTION set_updated_at()
 public.deal_room_participant.email text NOT NULL gen=- def=-
@@ -1414,6 +1416,7 @@ public.deal_room_participant.full_name text NOT NULL gen=- def=-
 public.deal_room_participant.id uuid NOT NULL gen=- def=uuidv7()
 public.deal_room_participant.invited_by uuid gen=- def=-
 public.deal_room_participant.link_requested_at timestamp with time zone gen=- def=-
+public.deal_room_participant.preview boolean NOT NULL gen=- def=false
 public.deal_room_participant.revoked_at timestamp with time zone gen=- def=-
 public.deal_room_participant.room_id uuid NOT NULL gen=- def=-
 public.deal_room_participant.source text NOT NULL gen=- def=-
@@ -4010,8 +4013,9 @@ public.uq_deal_room_document_live CREATE UNIQUE INDEX uq_deal_room_document_live
 public.uq_deal_room_invitation_attempt CREATE UNIQUE INDEX uq_deal_room_invitation_attempt ON public.deal_room_invitation USING btree (participant_id, attempt_no)
 public.uq_deal_room_invitation_live CREATE UNIQUE INDEX uq_deal_room_invitation_live ON public.deal_room_invitation USING btree (participant_id) WHERE ((consumed_at IS NULL) AND (superseded_at IS NULL))
 public.uq_deal_room_invitation_token CREATE UNIQUE INDEX uq_deal_room_invitation_token ON public.deal_room_invitation USING btree (token_hash)
-public.uq_deal_room_participant_email CREATE UNIQUE INDEX uq_deal_room_participant_email ON public.deal_room_participant USING btree (room_id, email) WHERE (revoked_at IS NULL)
+public.uq_deal_room_participant_email CREATE UNIQUE INDEX uq_deal_room_participant_email ON public.deal_room_participant USING btree (room_id, email) WHERE ((revoked_at IS NULL) AND (NOT preview))
 public.uq_deal_room_participant_in_room CREATE UNIQUE INDEX uq_deal_room_participant_in_room ON public.deal_room_participant USING btree (id, room_id)
+public.uq_deal_room_preview_per_rep CREATE UNIQUE INDEX uq_deal_room_preview_per_rep ON public.deal_room_participant USING btree (room_id, invited_by) WHERE ((revoked_at IS NULL) AND preview)
 public.uq_deal_room_release_no CREATE UNIQUE INDEX uq_deal_room_release_no ON public.deal_room_release USING btree (room_id, release_no)
 public.uq_deal_room_session_token CREATE UNIQUE INDEX uq_deal_room_session_token ON public.deal_room_session USING btree (token_hash)
 public.uq_dedupe_candidate_pair CREATE UNIQUE INDEX uq_dedupe_candidate_pair ON public.dedupe_candidate USING btree (entity_type, COALESCE(left_person_id, left_org_id, left_lead_id), COALESCE(right_person_id, right_org_id, right_lead_id))

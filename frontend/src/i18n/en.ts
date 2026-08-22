@@ -862,6 +862,10 @@ export const en = {
     "What the buyer reads first. Reaches them at the next publish.",
   "roompage.text.titleLabel": "Room title",
   "roompage.text.welcomeLabel": "Welcome message",
+  "roompage.viewAsBuyer": "View as buyer",
+  "roompage.previewDraft":
+    "Publish first — a buyer only ever sees a published release.",
+  "roompage.previewArchived": "An archived room has nothing to preview.",
   "roompage.publish": "Publish",
   "roompage.publishFinished":
     "This room is finished and takes no more releases.",
@@ -4286,6 +4290,10 @@ export const en = {
   "buyer.eyebrow": "Deal Room",
   "buyer.contact": "Your contact: {steward}.",
   "buyer.closed": "This room is closed; what it shared is a record now.",
+  "buyer.previewBanner":
+    "You are previewing this room as a buyer would see it. You can read everything and change nothing.",
+  "buyer.previewReadOnly":
+    "A preview cannot write. Close this tab to return to the Deal Room page.",
   "buyer.closedNote": "This room is now read-only.",
   "buyer.stewardUnknown": "your contact",
   "buyer.signOut": "Sign out",

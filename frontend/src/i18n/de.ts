@@ -821,6 +821,10 @@ export const de = {
     "Was der Käufer zuerst liest. Erreicht ihn bei der nächsten Veröffentlichung.",
   "roompage.text.titleLabel": "Titel des Raums",
   "roompage.text.welcomeLabel": "Begrüßungstext",
+  "roompage.viewAsBuyer": "Als Käufer ansehen",
+  "roompage.previewDraft":
+    "Zuerst veröffentlichen — ein Käufer sieht immer nur eine veröffentlichte Fassung.",
+  "roompage.previewArchived": "Ein archivierter Raum hat keine Vorschau.",
   "roompage.publish": "Veröffentlichen",
   "roompage.publishFinished":
     "Dieser Raum ist abgeschlossen und nimmt keine Veröffentlichungen mehr an.",
@@ -4232,6 +4236,10 @@ export const de = {
   "buyer.contact": "Ihr Ansprechpartner: {steward}.",
   "buyer.closed":
     "Dieser Raum ist geschlossen; das Geteilte ist jetzt ein Protokoll.",
+  "buyer.previewBanner":
+    "Sie sehen diesen Raum als Vorschau, so wie ein Käufer ihn sieht. Sie können alles lesen und nichts ändern.",
+  "buyer.previewReadOnly":
+    "Eine Vorschau kann nicht schreiben. Schließen Sie diesen Tab, um zur Deal-Room-Seite zurückzukehren.",
   "buyer.closedNote": "Dieser Raum ist jetzt schreibgeschützt.",
   "buyer.stewardUnknown": "Ihr Ansprechpartner",
   "buyer.signOut": "Abmelden",

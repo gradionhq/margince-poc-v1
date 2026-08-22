@@ -84,7 +84,7 @@ func liveSeatsFor(ctx context.Context, tx pgx.Tx, email string) ([]crmcontracts.
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s FROM %s
 		   JOIN deal_room r ON r.id = p.room_id
-		  WHERE p.email = $%d AND p.revoked_at IS NULL
+		  WHERE p.email = $%d AND p.revoked_at IS NULL AND NOT p.preview
 		    AND r.archived_at IS NULL AND r.state <> 'archived'
 		    AND NOT EXISTS (SELECT 1 FROM deal_room_invitation live
 		                     WHERE live.participant_id = p.id AND live.consumed_at IS NULL
