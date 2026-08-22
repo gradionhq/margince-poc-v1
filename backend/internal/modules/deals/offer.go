@@ -266,8 +266,10 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived store
 //
 // This is the authority half on its own, for the one write whose admission
 // gate runs in a transaction that COMMITS before the write does — the render,
-// which builds the PDF and stores the bytes between the two. Every other offer
-// write takes it through visibleOfferLocked, which adds the row lock.
+// which builds the PDF and stores the bytes between the two. Every other write
+// to an EXISTING offer takes it through visibleOfferLocked, which adds the row
+// lock. A create is the one write with no offer row to resolve: it gates on the
+// deal it is being hung off, through auth.EnsureLinkTarget in createOfferTx.
 func writableOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	offer, err := visibleOffer(ctx, tx, id, archived)
 	if err != nil {
