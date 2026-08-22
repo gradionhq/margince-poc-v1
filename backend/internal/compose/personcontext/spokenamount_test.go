@@ -43,6 +43,10 @@ func TestSpokenAmount(t *testing.T) {
 		"a credit in the millions":               {-150_000_000_000, "EUR", "-€1500000k"},
 		"a credit in a zero-decimal currency":    {-18_000_000, "VND", "-₫18000k"},
 		"a small credit keeps its sign in front": {-45_000, "USD", "-$450"},
+		// Under one major unit the figure truncates to zero, and a zero taken
+		// as positive turned a refund into "€0" — nothing at all, which reads
+		// as true where an ugly figure reads as odd.
+		"a credit under one major unit is still a credit": {-50, "EUR", "-€0"},
 		// The one magnitude int64 negation cannot express. Taking it unsigned
 		// is what stops a minus sign printing in front of a negative quotient.
 		"the most negative amount there is": {math.MinInt64, "EUR", "-€92233720368547k"},

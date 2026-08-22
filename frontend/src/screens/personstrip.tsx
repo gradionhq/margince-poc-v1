@@ -175,11 +175,17 @@ function consentTone(
 // a visual change that belongs with the frontend formatter sweep, not with a
 // correctness fix to the scale. Adopting it is tracked there.
 export function money(minor: number, currency: string): string {
+  // The tier comes from the MAGNITUDE and the sign goes in front. Comparing the
+  // signed value abbreviated only the positive half, so a credit read
+  // "€-95000" with the minus inside the figure — the shape a glance slot exists
+  // to avoid. The server-side sibling had the same defect and the same fix.
   const major = toMajorUnits(minor, currency);
-  if (major >= 1000) {
-    return `${symbolFor(currency)}${Math.round(major / 1000)}k`;
+  const sign = minor < 0 ? "-" : "";
+  const magnitude = Math.abs(major);
+  if (magnitude >= 1000) {
+    return `${sign}${symbolFor(currency)}${Math.round(magnitude / 1000)}k`;
   }
-  return `${symbolFor(currency)}${major}`;
+  return `${sign}${symbolFor(currency)}${magnitude}`;
 }
 
 function symbolFor(currency: string): string {

@@ -474,12 +474,15 @@ function dealEditRecord(deal: Deal): Record<
     id: deal.id,
     version: deal.version,
     name: deal.name,
-    // The currency's own scale, not a hundred: amount_minor and currency are
+    // The currency's own scale, not a hundred. amount_minor and currency are
     // NULL together (the deal_amount_currency_pair CHECK), so a priced deal
-    // always has the code this needs.
+    // always carries the code — but a row that WITHHELD the currency for row
+    // scope while sending the amount would be scaled at the two-digit default
+    // and shown wrong. There is no honest figure without its unit, so the field
+    // stays empty rather than guessing one.
     amount:
-      deal.amount_minor != null
-        ? String(toMajorUnits(deal.amount_minor, deal.currency ?? ""))
+      deal.amount_minor != null && deal.currency
+        ? String(toMajorUnits(deal.amount_minor, deal.currency))
         : "",
     currency: deal.currency ?? "",
     owner_id: deal.owner_id ?? "",

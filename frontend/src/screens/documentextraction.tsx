@@ -7,7 +7,7 @@ import { EvidenceMark } from "../design-system/evidencemark";
 import type { ConfidenceLevel } from "../design-system/trust";
 import { StagingCard } from "../design-system/trust";
 import { formatMoney } from "../format/format";
-import type { Locale } from "../i18n";
+import { minorUnitDigits, toMajorUnits } from "../format/minorunits";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
@@ -95,45 +95,26 @@ function plural(count: number, one: MessageKey, other: MessageKey): MessageKey {
 //
 // The currency is always there to convert with: a reading omits an amount it
 // could not pair with one, precisely so no figure is ever scaled by a guess.
-function minorDigits(currency: string, locale: Locale): number {
-  return (
-    new Intl.NumberFormat(locale === "de" ? "de-DE" : "en-US", {
-      style: "currency",
-      currency,
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  );
-}
-
 // majorUnits renders a stored minor-unit amount as the figure a person types.
 // Plain digits rather than a formatted amount: this is what goes INTO an input,
 // and a grouped "148,500.00" would come back out as something to re-parse.
-export function majorUnits(
-  minor: string,
-  currency: string,
-  locale: Locale,
-): string {
+export function majorUnits(minor: string, currency: string): string {
   const value = Number(minor);
   if (!Number.isFinite(value)) {
     return minor;
   }
-  return (value / 10 ** minorDigits(currency, locale)).toFixed(
-    minorDigits(currency, locale),
-  );
+  return toMajorUnits(value, currency).toFixed(minorUnitDigits(currency));
 }
 
 // minorUnits is its inverse, and it REFUSES rather than rounds: a figure with
 // more decimals than the currency has is a misread, and silently dropping a
 // digit is how an amount becomes wrong by an order of magnitude.
-export function minorUnits(
-  major: string,
-  currency: string,
-  locale: Locale,
-): string | null {
+export function minorUnits(major: string, currency: string): string | null {
   const trimmed = major.trim().replace(/[\s,]/g, "");
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
     return null;
   }
-  const digits = minorDigits(currency, locale);
+  const digits = minorUnitDigits(currency);
   const [whole, fraction = ""] = trimmed.split(".");
   if (fraction.length > digits) {
     return null;
@@ -150,7 +131,6 @@ export function DocumentExtractionPanel({
   canAccept,
 }: Readonly<{ attachmentId: string; canAccept: boolean }>) {
   const t = useT();
-  const { locale } = useLocale();
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [accepted, setAccepted] = useState<number | null>(null);
@@ -214,12 +194,7 @@ export function DocumentExtractionPanel({
           // what gets written.
           extraction_id: extraction.id,
           field_keys: fields.map((f) => f.field),
-          edits: editedOnly(
-            fields,
-            edits,
-            groundedCurrency(extraction),
-            locale,
-          ),
+          edits: editedOnly(fields, edits, groundedCurrency(extraction)),
         },
       });
       if (error) {
@@ -285,7 +260,6 @@ function editedOnly(
   fields: readonly ExtractedField[],
   edits: Readonly<Record<string, string>>,
   currency: string,
-  locale: Locale,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const field of fields) {
@@ -299,7 +273,7 @@ function editedOnly(
     // by name, rather than being silently rounded into something plausible.
     const value =
       field.field === AMOUNT_FIELD && currency !== ""
-        ? (minorUnits(draft, currency, locale) ?? draft)
+        ? (minorUnits(draft, currency) ?? draft)
         : draft;
     if (value !== field.value) {
       out[field.field] = value;
@@ -488,9 +462,7 @@ function GroundedField({
         <Button
           variant="ghost"
           onClick={() =>
-            onEdit(
-              money ? majorUnits(field.value, currency, locale) : field.value,
-            )
+            onEdit(money ? majorUnits(field.value, currency) : field.value)
           }
         >
           {t("extraction.edit")}

@@ -7,13 +7,9 @@ import type { components } from "../api/schema";
 import { useInstallationSettings } from "../app/uploadlimit";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { FileDropzoneControl } from "../design-system/filedropzone";
+import { MoneyInput } from "../design-system/moneyinput";
 import { Select } from "../design-system/select";
 import { SurfaceState } from "../design-system/surfacestate";
-import {
-  minorUnitDigits,
-  toMajorUnits,
-  toMinorUnits,
-} from "../format/minorunits";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 import { paperState, useContractPaper } from "./contractpaper";
@@ -168,34 +164,30 @@ export function ContractForm({
 
       <Field label={t("contracts.form.value")}>
         {(props) => (
-          <TextInput
+          // MoneyInput rather than a TextInput this file scales itself, and the
+          // reasons are the two defects the hand-rolled version had.
+          //
+          // It keeps the typed text as its OWN state, so a fractional amount is
+          // not reformatted between keystrokes — typing "12.345" into a
+          // three-decimal currency lost its tail when every keystroke was
+          // scaled and echoed back.
+          //
+          // And it re-seeds when the CURRENCY changes, which this form needs
+          // more than any other: the installation read that supplies the code
+          // may land after the reader has already typed. Scaling on each
+          // keystroke against a currency still in flight recorded the amount at
+          // the two-digit fallback and then reinterpreted the same integer at
+          // the real scale, with nothing on screen to say it had moved.
+          <MoneyInput
             {...props}
-            type="number"
             min={0}
-            // The scale — and the step — are the CURRENCY's. The form offers no
-            // currency control, so the record's own code stands, falling back
-            // to the installation's declared one for a contract being written
-            // now. A fixed 0.01 both mis-scaled a dong value and invited a
-            // fractional one the schema cannot hold.
-            step={
-              minorUnitDigits(contractCurrency) === 0
-                ? "1"
-                : `0.${"0".repeat(minorUnitDigits(contractCurrency) - 1)}1`
-            }
-            value={
-              draft.valueMinor === 0
-                ? ""
-                : toMajorUnits(draft.valueMinor, contractCurrency)
-            }
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                valueMinor: toMinorUnits(
-                  Number(e.target.value || 0),
-                  contractCurrency,
-                ),
-              })
-            }
+            currency={contractCurrency}
+            valueMinor={draft.valueMinor}
+            // An agreement on record may carry no value at all — the two money
+            // columns are paired and both NULL until somebody prices it — so an
+            // unpriced one shows an empty field, not a nought nobody typed.
+            blankWhenZero
+            onChangeMinor={(valueMinor) => setDraft({ ...draft, valueMinor })}
           />
         )}
       </Field>

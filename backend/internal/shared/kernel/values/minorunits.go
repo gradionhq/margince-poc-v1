@@ -49,6 +49,21 @@ var currencyMinorDigits = map[string]int{
 	"XAU": 0, "XAG": 0, "XPT": 0, "XPD": 0, "XDR": 0, "XXX": 0, "XTS": 0,
 }
 
+// MinorUnitExceptions is a copy of the table above, for the ONE caller that
+// needs to compare it rather than use it: the gate asserting that the browser's
+// mirror of this table has not drifted from it
+// (backend/frontendminorunits_test.go).
+//
+// A copy and not the map itself, because a caller holding the real one could
+// change what every money figure in the product scales by, from anywhere.
+func MinorUnitExceptions() map[string]int {
+	out := make(map[string]int, len(currencyMinorDigits))
+	for code, digits := range currencyMinorDigits {
+		out[code] = digits
+	}
+	return out
+}
+
 // MinorUnitDigits reports how many minor-unit digits a currency code carries.
 //
 // A code the table does not name answers 2, and that is the right answer rather

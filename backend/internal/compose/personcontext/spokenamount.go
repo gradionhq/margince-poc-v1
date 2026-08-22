@@ -58,9 +58,13 @@ func SpokenAmount(amountMinor int64, currency string) string {
 	// Unsigned, and taken by the same wrap values.MajorUnits documents:
 	// negating math.MinInt64 as an int64 yields itself, so a magnitude taken
 	// that way would print a minus in front of a negative number.
+	// The sign comes from the AMOUNT, not from the truncated major figure. A
+	// credit smaller than one major unit truncates to zero, and a zero taken as
+	// positive rendered -50 EUR as "€0" — a refund read as nothing at all,
+	// which is worse than an ugly figure because it is a plausible one.
 	major := values.WholeMajorUnits(amountMinor, currency)
 	sign, magnitude := "", uint64(major) // #nosec G115 -- the wrap IS how |MinInt64| is obtained; see above
-	if major < 0 {
+	if amountMinor < 0 {
 		sign, magnitude = "-", -uint64(major) // #nosec G115 -- same
 	}
 	// One abbreviation step, and deliberately not two. A currency with no minor

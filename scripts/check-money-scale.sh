@@ -56,8 +56,8 @@ IFS=' ' read -r -a ts_scan <<< "${MONEY_SCALE_TS_SCAN:-frontend/src}"
 #
 # The pairing is bounded by the statement, and the statement by four lines, so
 # "somewhere in this file" is never enough to fire.
-names='[Mm]inor[A-Za-z_]*'
-powers='[/*%][[:space:]]*1000?0?([^0-9.]|$)'
+names='[Mm]inor[A-Za-z_]*|MINOR[A-Z_]*'
+powers='[/*%][[:space:]]*10{1,4}([^0-9.]|$)'
 
 # strip <files…>: emit `file:line:statement` with comments removed and
 # CONTINUATION LINES JOINED, so a wrapped expression is judged whole.
@@ -92,18 +92,44 @@ strip() {
     FNR == 1 { flush(); inblock = 0 }
     {
       c = $0
-      if (index(c, waiver) > 0) { flush(); next }
+      # The waiver counts only where a waiver can be WRITTEN — in a comment. A
+      # line carrying the marker inside a string literal was skipping the whole
+      # line, which let any code on it bypass the gate under a marker its author
+      # never wrote as one.
+      if (match(c, /(\/\/|\/\*)[^"`\x27]*money-scale-exempt:/)) { flush(); next }
       if (inblock) { if (match(c, /\*\//)) { inblock = 0; c = substr(c, RSTART + RLENGTH) } else next }
       t = c; sub(/^[[:space:]]+/, "", t)
       if (t ~ /^(\/\/|\*)/) next
       while (match(c, /\/\*[^*]*\*+([^\/*][^*]*\*+)*\//)) { c = substr(c, 1, RSTART - 1) substr(c, RSTART + RLENGTH) }
       if (match(c, /\/\*/)) { inblock = 1; c = substr(c, 1, RSTART - 1) }
-      sub(/[[:space:]]+\/\/.*$/, "", c)
+      # `x:=minor/100//note` is a comment too. Anchored on a `//` that is not
+      # part of a scheme (`https://`), which is the only form that routinely
+      # appears inside a string here.
+      pos = 0
+      while ((i = index(substr(c, pos + 1), "//")) > 0) {
+        abs = pos + i
+        if (abs == 1 || substr(c, abs - 1, 1) != ":") { c = substr(c, 1, abs - 1); break }
+        pos = abs + 1
+      }
       if (t == "") { flush(); next }
       if (buf == "") start = FNR
       buf = buf " " c
       lines++
       depth += opens(c) - closes(c)
+      # An expression may also be broken after a trailing operator with no
+      # bracket open — `amountMinor :=` on one line and `major * 100` on the
+      # next — so a line ENDING in one keeps the statement open. Without this
+      # the gate flushed before the arithmetic arrived and saw two halves,
+      # neither of them a finding.
+      # Only an operator that CANNOT end a statement continues one. A trailing
+      # comma or colon ends a perfectly good line in a struct literal, and
+      # treating those as continuations joined unrelated members — a `valueMinor`
+      # field and an `ageMs * 1000` two lines below became a finding. Braces are
+      # left out of the depth above for the same reason: they open a BLOCK, and
+      # counting them swallowed whole function bodies.
+      trailing = c
+      sub(/[[:space:]]+$/, "", trailing)
+      if (trailing ~ /(=|\+|-|\*|\/|&&|\|\|)$/ && lines < 4) next
       # Bounded at four lines. A wrapped expression is two to four; a `const (`
       # block is thirty, and joining one turns every unrelated pairing inside it
       # into a finding — measured on compose/report.go, whose const block holds
@@ -114,14 +140,46 @@ strip() {
     END { flush() }'
 }
 
+# A scan root that does not exist makes find print an error and match nothing,
+# and the gate would then say OK having inspected that language not at all —
+# green over an empty universe, which is the failure a scanner must never have.
+for root in "${go_scan[@]}" "${ts_scan[@]}"; do
+  [[ -d "$root" ]] || { echo "FAIL: scan root $root does not exist — this gate would inspect nothing and say OK"; exit 1; }
+done
+
+# hits <names-regex> <powers-regex>: the `file:line:statement` rows whose
+# STATEMENT carries both a minor-unit name and an integer power of ten.
+#
+# Matched against the text after `file:line:`, never the whole row: a repository
+# path containing "minor" would otherwise make every `/100` beneath it a
+# finding. The gate's subject is an identifier in source, not a filename.
+hits() {
+  awk -F: -v names="$1" -v powers="$2" '{
+    stmt = $0
+    sub(/^[^:]+:[0-9]+:/, "", stmt)
+    if (!(stmt ~ names) || !(stmt ~ powers)) next
+    # Two spellings carry a "10" and are not a hard-coded scale, so they are
+    # removed before the statement is judged again:
+    #
+    #   10 ** digits   the SANCTIONED form — a power raised to the currency
+    #                  digit count is exactly what the owners compute with
+    #   10_000         a grouped integer literal; the basis-point divisor in
+    #                  commissions is a rate, not a minor unit
+    probe = stmt
+    gsub(/10[[:space:]]*\*\*/, " ", probe)
+    gsub(/10_[0-9_]+/, " ", probe)
+    if (probe ~ powers) print
+  }'
+}
+
 go_hits="$(find "${go_scan[@]}" -type f -name '*.go' \
              ! -name '*_test.go' ! -name '*_gen.go' ! -name '*.gen.go' -print0 2>/dev/null \
-           | strip | grep -E "$names" | grep -E "$powers" \
+           | strip | hits "$names" "$powers" \
            | grep -vE 'shared/kernel/values/' || true)"
 
 ts_hits="$(find "${ts_scan[@]}" -type f \( -name '*.ts' -o -name '*.tsx' \) \
              ! -name '*.test.ts' ! -name '*.test.tsx' ! -name 'schema.d.ts' -print0 2>/dev/null \
-           | strip | grep -E "$names" | grep -E "$powers" \
+           | strip | hits "$names" "$powers" \
            | grep -v 'format/minorunits' || true)"
 
 if [[ -n "$go_hits" || -n "$ts_hits" ]]; then
