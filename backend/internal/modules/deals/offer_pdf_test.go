@@ -6,6 +6,7 @@ package deals
 import (
 	"bytes"
 	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/go-pdf/fpdf"
@@ -36,6 +37,14 @@ func testRenderLines() []crmcontracts.OfferLineItem {
 	}
 }
 
+// pdfContentStream matches a stream object's declared length and the
+// keyword that opens its bytes, which is the only way to find where those
+// bytes END: a drawn string may itself contain "endstream" (a template's
+// terms text is arbitrary), and scanning for that keyword would cut the
+// document short there and then read the real terminator as the start of
+// another stream.
+var pdfContentStream = regexp.MustCompile(`/Length (\d+)\s*>>\s*stream\r?\n`)
+
 // pdfDrawnText returns what the document DRAWS: every content stream in
 // the file, concatenated. It deliberately drops the container around them
 // — the xref byte offsets and the /CreationDate and /ModDate the renderer
@@ -54,22 +63,25 @@ func pdfDrawnText(t *testing.T, pdf []byte) []byte {
 	t.Helper()
 
 	var drawn []byte
-	rest := pdf
-	for {
-		open := bytes.Index(rest, []byte("stream\n"))
-		if open < 0 {
-			break
+	for _, m := range pdfContentStream.FindAllSubmatchIndex(pdf, -1) {
+		length, err := strconv.Atoi(string(pdf[m[2]:m[3]]))
+		if err != nil || length < 0 {
+			t.Fatalf("stream object declares an unreadable /Length %q", pdf[m[2]:m[3]])
 		}
-		rest = rest[open+len("stream\n"):]
-		end := bytes.Index(rest, []byte("endstream"))
-		if end < 0 {
-			t.Fatalf("malformed PDF: a stream is never closed:\n%s", pdf)
+		start := m[1]
+		if start+length > len(pdf) {
+			t.Fatalf("stream object declares /Length %d, which runs past the end of a %d-byte file", length, len(pdf))
 		}
-		drawn = append(drawn, rest[:end]...)
-		// Past the terminator, not to it: "endstream" itself ends in
-		// "stream", so resuming at `end` would re-enter this loop on the
-		// closing keyword and then run off the file looking for its close.
-		rest = rest[end+len("endstream"):]
+		body := pdf[start : start+length]
+		// The declared length is what this helper trusts, so prove it:
+		// the bytes it points past must be the terminator. A renderer
+		// that ever wrote a wrong /Length would otherwise hand back
+		// silently truncated text and every assertion below would be
+		// reading part of a document.
+		if !bytes.HasPrefix(bytes.TrimLeft(pdf[start+length:], "\r\n"), []byte("endstream")) {
+			t.Fatalf("a stream's declared /Length %d does not reach its terminator:\n%s", length, pdf)
+		}
+		drawn = append(drawn, body...)
 	}
 	if len(drawn) == 0 {
 		t.Fatalf("PDF carries no content stream at all:\n%s", pdf)
@@ -344,5 +356,31 @@ func TestPDFDrawnTextExcludesTheWallClockStamp(t *testing.T) {
 	}
 	if bytes.Contains(pdfDrawnText(t, at123457), []byte("12345")) {
 		t.Fatalf("drawn text must not carry the timestamp's digits — an assertion scoped to it would still be reading the clock:\n%s", pdfDrawnText(t, at123457))
+	}
+}
+
+// TestPDFDrawnTextSurvivesDrawnTextThatSaysEndstream is the case a
+// keyword scan cannot handle: a template's terms text is arbitrary, so it
+// may contain "endstream" itself. Reading each stream by its declared
+// /Length keeps the whole document in view; scanning for the keyword would
+// cut it at the drawn word and lose everything the renderer wrote after.
+func TestPDFDrawnTextSurvivesDrawnTextThatSaysEndstream(t *testing.T) {
+	o := testRenderOffer(100000, 19000, 119000)
+	layout := map[string]any{
+		"terms_text":  "endstream is a word a customer may write",
+		"footer_text": "Footer after the terms",
+	}
+
+	pdf, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	drawn := pdfDrawnText(t, pdf)
+	if !bytes.Contains(drawn, []byte("endstream is a word a customer may write")) {
+		t.Fatalf("the drawn terms text must survive intact:\n%s", drawn)
+	}
+	if !bytes.Contains(drawn, []byte("Footer after the terms")) {
+		t.Fatalf("text drawn AFTER the word \"endstream\" must survive too — the stream was cut at the drawn word:\n%s", drawn)
 	}
 }
