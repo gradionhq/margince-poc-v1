@@ -91,16 +91,11 @@ import { DealNextAction } from "./dealnextaction";
 function DealAside({
   dealId,
   dealName,
-  activities,
-}: Readonly<{
-  dealId: string;
-  dealName: string;
-  activities: readonly Activity[];
-}>) {
+}: Readonly<{ dealId: string; dealName: string }>) {
   return (
     <>
       <DealNextAction dealId={dealId} />
-      <DealNextMeeting activities={activities} />
+      <DealNextMeeting dealId={dealId} />
       <DealBriefCard dealId={dealId} />
       <DealHealthCard dealId={dealId} />
       <DealRoomAside dealId={dealId} dealName={dealName} />
@@ -144,7 +139,6 @@ import { groupChronology } from "./timelinegroups";
 // across currencies).
 
 type Deal = components["schemas"]["Deal"];
-type Activity = components["schemas"]["Activity"];
 type Organization = components["schemas"]["Organization"];
 type Stage = components["schemas"]["Stage"];
 type Pipeline = components["schemas"]["Pipeline"];
@@ -3353,11 +3347,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               )}
               aside={
                 overlay ? undefined : (
-                  <DealAside
-                    dealId={id}
-                    dealName={deal.name}
-                    activities={timelineQuery.activities}
-                  />
+                  <DealAside dealId={id} dealName={deal.name} />
                 )
               }
               asideLabel={t("nba.title")}
