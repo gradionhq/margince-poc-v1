@@ -1,0 +1,43 @@
+/* The buyer's Deal Room — a standalone page reached from an invitation link,
+   not a de-chromed app screen: its own centered reading column and ground,
+   like the preference center. Tokens only (make ds-purity). */
+
+.buyer-page {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-16) var(--space-5) var(--space-16);
+  background: var(--bgCard);
+}
+
+.buyer-column {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.buyer-header h1 {
+  margin: var(--space-2) 0 0;
+}
+
+.buyer-header p {
+  margin-top: var(--space-3);
+}
+
+.buyer-meta {
+  color: var(--textMeta);
+}
+
+.buyer-linkrequest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.buyer-foot {
+  display: flex;
+  justify-content: flex-end;
+}

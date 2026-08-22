@@ -179,6 +179,9 @@ const PersonPageV2 = lazy(
     import("./screens/personpage").then((m) => ({ default: m.PersonPageV2 })),
   ),
 );
+const BuyerRoomScreen = lazy(() =>
+  import("./screens/buyerroom").then((m) => ({ default: m.BuyerRoomScreen })),
+);
 const PreferenceCenterScreen = lazy(
   routed(() =>
     import("./screens/preferences").then((m) => ({
@@ -441,6 +444,9 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     // #/preferences/<token> — anonymous; the token in the path is the
     // whole capability (security: [] in the contract).
     preferences: ({ id }) => <PreferenceCenterScreen token={id} />,
+    // #/room?c=<credential> — the Deal Room's buyer, anonymous; the credential
+    // rides the hash's query and the screen scrubs it on first read.
+    room: () => <BuyerRoomScreen />,
     // reached only via the server's redirect off GET /oauth/authorize
     // (#/oauth-consent?…&consent=<nonce>) — never a rail destination.
     "oauth-consent": () => <OAuthConsent />,
@@ -560,7 +566,11 @@ function ScreenView({
 
 // The anonymous public surfaces render without a session — their slug in the
 // path is the whole address (security: [] in the contract).
-const PUBLIC_SCREENS: ReadonlySet<Screen> = new Set(["book", "preferences"]);
+const PUBLIC_SCREENS: ReadonlySet<Screen> = new Set([
+  "book",
+  "preferences",
+  "room",
+]);
 
 // Screens the onboarding gate must never navigate away from, beyond
 // onboarding itself. The OAuth consent screen carries a single-use,
