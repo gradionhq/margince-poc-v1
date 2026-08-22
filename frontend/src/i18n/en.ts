@@ -6005,7 +6005,7 @@ export const en = {
   "project.rollups.never": "nothing yet",
   "project.rollups.activityCount": "Activities",
   "project.coverage":
-    "{attributed} attributed · {nearby} on this project's people and deals not attributed",
+    "{attributed} attributed · {awaiting} awaiting a decision · {nearby} on this project's people and deals not attributed",
   "project.history.title": "Phase history",
   "project.history.empty": "No phase change recorded yet.",
   "project.history.current": "current",

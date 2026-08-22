@@ -84,7 +84,7 @@ describe("ProjectScreen", () => {
     expect(within(rollups).getByText("4")).toBeTruthy();
     expect(within(rollups).getByText("142")).toBeTruthy();
     expect(screen.getByTestId("project-coverage").textContent).toBe(
-      "142 attributed · 23 on this project's people and deals not attributed",
+      "142 attributed · 8 awaiting a decision · 23 on this project's people and deals not attributed",
     );
 
     // The sections: a linked deal row, a seated person with their role, the

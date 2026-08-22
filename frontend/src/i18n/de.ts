@@ -5931,7 +5931,7 @@ export const de = {
   "project.rollups.never": "noch nichts",
   "project.rollups.activityCount": "Aktivitäten",
   "project.coverage":
-    "{attributed} zugeordnet · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
+    "{attributed} zugeordnet · {awaiting} warten auf Entscheidung · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
   "project.history.title": "Phasenverlauf",
   "project.history.empty": "Noch kein Phasenwechsel erfasst.",
   "project.history.current": "aktuell",
