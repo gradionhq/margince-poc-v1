@@ -1047,7 +1047,7 @@ func (stubs) UpdateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateOrganization")
 }
 
-func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganization360Params) {
 	httperr.NotImplemented(w, r, "GetOrganization360")
 }
 
@@ -1263,7 +1263,7 @@ func (stubs) UpdatePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmco
 	httperr.NotImplemented(w, r, "UpdatePerson")
 }
 
-func (stubs) GetPerson360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetPerson360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetPerson360Params) {
 	httperr.NotImplemented(w, r, "GetPerson360")
 }
 

@@ -930,6 +930,13 @@ paths:
 
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`.
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
       responses:
         '200':
           description: The person's 360 view.
@@ -1877,6 +1884,13 @@ paths:
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
         give, because the mirror holds none of these relationships.
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
       responses:
         '200':
           description: The organization's 360 view.
@@ -3564,6 +3578,12 @@ paths:
         - name: q
           in: query
           schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
         - name: thread_key
           in: query
           schema: { type: string }

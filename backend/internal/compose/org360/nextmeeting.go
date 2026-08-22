@@ -56,7 +56,7 @@ const meetingParticipantLimit = 8
 // per account than per page. The attendees come back as JSON from a lateral
 // sub-select, carrying their own row-scope predicate.
 func nextMeetingSection(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, opts AssembleOptions,
 ) (*crmcontracts.Organization360NextMeeting, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -117,11 +117,11 @@ func nextMeetingSection(
 		  -- booking nobody has tracked a status on, which is a real meeting.
 		  AND (a.meeting_status IS NULL OR a.meeting_status = 'booked')
 		  AND a.occurred_at > $%[4]d
-		  AND %[1]s AND %[2]s
+		  AND %[1]s AND %[2]s%[7]s
 		ORDER BY a.occurred_at, a.id
 		LIMIT 1`,
 		activityScope, activities.OrgLinkedActivityExists(orgPos), dealVisible, nowPos,
-		personVisible, meetingParticipantLimit),
+		personVisible, meetingParticipantLimit, opts.projectScope(arg)),
 		args...,
 	).Scan(&id, &occurred, &meeting.Subject, &dealID, &meeting.Participants)
 	if errors.Is(err, pgx.ErrNoRows) {

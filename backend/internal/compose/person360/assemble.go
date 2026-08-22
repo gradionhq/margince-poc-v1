@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -87,8 +88,24 @@ type providerDescriptors interface {
 	Descriptor(name string) (provider.Descriptor, error)
 }
 
+// AssembleOptions narrows what the page reads. The zero value is the whole
+// record.
+type AssembleOptions struct {
+	// ProjectID scopes the timeline sections — recent activity, next steps,
+	// last touch, since-last-visit — to one body of work: rows filed under
+	// this project or under none, never rows filed under another project.
+	// The rule is activities.ActivityWithinProject; the identity, employment
+	// and network sections describe the person, not a project, and stay whole.
+	ProjectID *ids.ProjectID
+}
+
 // Assemble reads the whole person page inside ONE workspace transaction.
 func (s *Service) Assemble(ctx context.Context, personID ids.PersonID) (crmcontracts.Person360, error) {
+	return s.AssembleScoped(ctx, personID, AssembleOptions{})
+}
+
+// AssembleScoped is Assemble narrowed by opts.
+func (s *Service) AssembleScoped(ctx context.Context, personID ids.PersonID, opts AssembleOptions) (crmcontracts.Person360, error) {
 	now := s.now().UTC()
 	out := crmcontracts.Person360{
 		AsOf:            now,
@@ -107,8 +124,17 @@ func (s *Service) Assemble(ctx context.Context, personID ids.PersonID) (crmcontr
 			return err
 		}
 		out.Person = person
+		// The scope is a read of the project, gated before any section
+		// filters on it — and as the whole read's refusal, not a section's:
+		// a page narrowed to a project the caller may not see has no honest
+		// sections at all.
+		if opts.ProjectID != nil {
+			if err := activities.RequireProjectScope(ctx, tx, *opts.ProjectID); err != nil {
+				return err
+			}
+		}
 
-		for _, section := range s.sections(personID, now) {
+		for _, section := range s.sections(personID, now, opts) {
 			if err := section.read(ctx, tx, &out); err != nil {
 				// A section the caller may not read is named, not returned
 				// empty. Any other failure is the whole read's failure —
@@ -135,7 +161,7 @@ type section struct {
 	read func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error
 }
 
-func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
+func (s *Service) sections(personID ids.PersonID, now time.Time, opts AssembleOptions) []section {
 	return []section{
 		{name: crmcontracts.Person360SectionsOmittedStrength, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.strengthSection(ctx, tx, personID, now, out)
@@ -150,13 +176,13 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 			return s.dealRolesSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedActivities, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.activitiesSection(ctx, tx, personID, out)
+			return s.activitiesSection(ctx, tx, personID, opts, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedNextSteps, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.nextStepsSection(ctx, tx, personID, out)
+			return s.nextStepsSection(ctx, tx, personID, opts, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedLastTouch, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.lastTouchSection(ctx, tx, personID, out)
+			return s.lastTouchSection(ctx, tx, personID, opts, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedNetwork, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.networkSection(ctx, tx, personID, now, out)
@@ -168,7 +194,7 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 			return s.profileFieldsSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedSinceLastVisit, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.sinceLastVisitSection(ctx, tx, personID, out)
+			return s.sinceLastVisitSection(ctx, tx, personID, opts, out)
 		}},
 		// Both of these run BEFORE the moments below, because the ladder's
 		// rules read them: the meeting-prep rung asks what is booked, and the
@@ -186,7 +212,7 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 			return s.providerProfileSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedNextMeeting, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.nextMeetingSection(ctx, tx, personID, now, out)
+			return s.nextMeetingSection(ctx, tx, personID, now, opts, out)
 		}},
 		// LAST, and it has to be: the moments are derived from what the
 		// sections above gathered, so a moment can never cite evidence this

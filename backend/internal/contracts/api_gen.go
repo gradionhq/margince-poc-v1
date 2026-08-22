@@ -23278,6 +23278,9 @@ type ListActivitiesParams struct {
 	AssigneeId *openapi_types.UUID `form:"assignee_id,omitempty" json:"assignee_id,omitempty"`
 	Q          *string             `form:"q,omitempty" json:"q,omitempty"`
 
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
+
 	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
 	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
 }
@@ -25337,6 +25340,12 @@ type UpdateOrganizationParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// GetOrganization360Params defines parameters for GetOrganization360.
+type GetOrganization360Params struct {
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
 // AskAboutOrganizationJSONBody defines parameters for AskAboutOrganization.
 type AskAboutOrganizationJSONBody struct {
 	// Question The prepared questions. Fixed, because each one names the records its answer is
@@ -25833,6 +25842,12 @@ type UpdatePersonParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// GetPerson360Params defines parameters for GetPerson360.
+type GetPerson360Params struct {
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
 // RecordConsentParams defines parameters for RecordConsent.
@@ -36790,7 +36805,7 @@ type ServerInterface interface {
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams)
 	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 	// (GET /organizations/{id}/360)
-	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
+	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id, params GetOrganization360Params)
 	// Ask one of the prepared questions about this account.
 	// (POST /organizations/{id}/ask)
 	AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id)
@@ -36952,7 +36967,7 @@ type ServerInterface interface {
 	UpdatePerson(w http.ResponseWriter, r *http.Request, id Id, params UpdatePersonParams)
 	// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
 	// (GET /people/{id}/360)
-	GetPerson360(w http.ResponseWriter, r *http.Request, id Id)
+	GetPerson360(w http.ResponseWriter, r *http.Request, id Id, params GetPerson360Params)
 	// The standing relationship brief — who this person is commercially, what they care about, what changed.
 	// (GET /people/{id}/brief)
 	GetPersonBrief(w http.ResponseWriter, r *http.Request, id Id)
@@ -38974,7 +38989,7 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 
 // The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 // (GET /organizations/{id}/360)
-func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id, params GetOrganization360Params) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39298,7 +39313,7 @@ func (_ Unimplemented) UpdatePerson(w http.ResponseWriter, r *http.Request, id I
 
 // The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
 // (GET /people/{id}/360)
-func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id, params GetPerson360Params) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40408,6 +40423,19 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
 		}
 		return
 	}
@@ -51463,8 +51491,24 @@ func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrganization360Params
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetOrganization360(w, r, id)
+		siw.Handler.GetOrganization360(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53967,8 +54011,24 @@ func (siw *ServerInterfaceWrapper) GetPerson360(w http.ResponseWriter, r *http.R
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPerson360Params
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetPerson360(w, r, id)
+		siw.Handler.GetPerson360(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
