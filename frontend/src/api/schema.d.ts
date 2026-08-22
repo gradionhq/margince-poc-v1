@@ -8670,6 +8670,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deals/{id}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * How the deal stands — four named factors, each with the fact behind it.
+         * @description The deal-health formula (recency × velocity × engagement × commitments) with
+         *     its evidence, so a reader can see what each factor was read from and
+         *     disagree. Computed on read; nothing is stored.
+         */
+        get: operations["getDealHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/coverage": {
         parameters: {
             query?: never;
@@ -13851,6 +13876,33 @@ export interface components {
             activity_id?: string | null;
             /** Format: date-time */
             occurred_at?: string | null;
+        };
+        DealHealthReading: {
+            /** Format: uuid */
+            deal_id: string;
+            /** @description The weighted reading, 0..1. */
+            health: number;
+            /** @description Below the at-risk threshold. */
+            at_risk: boolean;
+            /** @description The four parts, in the order they weigh. Each names the fact it was read from. */
+            factors: components["schemas"]["DealHealthFactor"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        DealHealthFactor: {
+            /** @description `activity_recency`, `stage_velocity`, `engagement` or `commitments`. */
+            key: string;
+            /** @description The factor, 0..1. */
+            value: number;
+            /** @description Its share of the reading. */
+            weight: number;
+            /** @description The fact behind the number, in one sentence. */
+            reason: string;
+            /**
+             * Format: uuid
+             * @description The activity the factor points at, where one does.
+             */
+            activity_id?: string | null;
         };
         DealCoverage: {
             /** Format: uuid */
@@ -36571,6 +36623,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DealNextBestAction"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The health reading. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealHealthReading"];
                 };
             };
             401: components["responses"]["Unauthorized"];

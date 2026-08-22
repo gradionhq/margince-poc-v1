@@ -184,4 +184,11 @@ func TestVelocityFallsBackWithoutEnoughWonHistory(t *testing.T) {
 	if got := healthFromInputs(in, healthFixedNow()); got.Evidence.ExpectedDaysInStage != stageVelocityFallbackDays {
 		t.Fatalf("zero median must fall back, got expected days %f", got.Evidence.ExpectedDaysInStage)
 	}
+	// A median of minutes — won deals that hopped the stage on import — is no
+	// expectation either: measured against it, every live deal would crawl.
+	minutes := 0.002
+	in.medianWonStageDays = &minutes
+	if got := healthFromInputs(in, healthFixedNow()); got.Evidence.ExpectedDaysInStage != stageVelocityFallbackDays || got.Factors.StageVelocity != 0.6 {
+		t.Fatalf("a sub-day median must fall back, got expected days %f velocity %f", got.Evidence.ExpectedDaysInStage, got.Factors.StageVelocity)
+	}
 }

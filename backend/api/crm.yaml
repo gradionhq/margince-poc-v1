@@ -13260,6 +13260,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /deals/{id}/health:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealHealth
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: How the deal stands — four named factors, each with the fact behind it.
+      description: |
+        The deal-health formula (recency × velocity × engagement × commitments) with
+        its evidence, so a reader can see what each factor was read from and
+        disagree. Computed on read; nothing is stored.
+      responses:
+        '200':
+          description: The health reading.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealHealthReading' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /deals/{id}/coverage:
     get:
       tags: [Deals]
@@ -19967,6 +19988,30 @@ components:
         text: { type: string }
         activity_id: { type: [string, 'null'], format: uuid }
         occurred_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: false
+    DealHealthReading:
+      type: object
+      required: [deal_id, health, at_risk, factors, computed_at]
+      properties:
+        deal_id: { type: string, format: uuid }
+        health: { type: number, description: 'The weighted reading, 0..1.' }
+        at_risk: { type: boolean, description: 'Below the at-risk threshold.' }
+        factors:
+          type: array
+          description: The four parts, in the order they weigh. Each names the fact it was read from.
+          items: { $ref: '#/components/schemas/DealHealthFactor' }
+        computed_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    DealHealthFactor:
+      type: object
+      required: [key, value, weight, reason]
+      properties:
+        key: { type: string, description: '`activity_recency`, `stage_velocity`, `engagement` or `commitments`.' }
+        value: { type: number, description: 'The factor, 0..1.' }
+        weight: { type: number, description: Its share of the reading. }
+        reason: { type: string, description: 'The fact behind the number, in one sentence.' }
+        activity_id: { type: [string, 'null'], format: uuid, description: 'The activity the factor points at, where one does.' }
       additionalProperties: false
     DealCoverage:
       type: object

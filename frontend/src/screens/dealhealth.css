@@ -1,0 +1,13 @@
+/* The deal pulse rows. Tokens only. */
+
+.pulse-factor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pulse-reason,
+.pulse-total {
+  margin: 0;
+  color: var(--textMeta);
+}
