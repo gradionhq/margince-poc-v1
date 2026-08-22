@@ -75,13 +75,21 @@ func TestOneLogicalCallAnnouncesItsStartOnce(t *testing.T) {
 	r := assembleRouter(nil, nil, ProfileEUHosted, &memoryMeter{}, StaticBudget(0), starter, nil, false, nil)
 	lc := newLogicalCall()
 	ctx := principal.WithCorrelationID(context.Background(), ids.NewV7())
+	ladder := []Tier{TierCheapCloud}
 
 	for range 3 {
-		lc.announceRailStartOnce(ctx, r, TaskSummarize, []Tier{TierCheapCloud})
+		lc.announceRailStartOnce(ctx, r, TaskSummarize, ladder)
 	}
 
 	if len(starter.starts) != 1 {
 		t.Fatalf("three attempts of one logical call announced %d starts, want 1", len(starter.starts))
+	}
+	// The lease is asserted here and nowhere else. Without it the recorder holds
+	// a field no test reads, and the claim this whole file rests on — that the
+	// starter is handed the DERIVED lease for the ladder in hand — would survive
+	// that argument being dropped or replaced by a constant.
+	if want := railLease(ladder); starter.leases[0] != want {
+		t.Errorf("the start was leased for %s, want the derived %s", starter.leases[0], want)
 	}
 }
 
@@ -89,6 +97,7 @@ func TestOneLogicalCallAnnouncesItsStartOnce(t *testing.T) {
 // local router and the cert lane both inject one, and the honest behaviour is
 // no announcement rather than a no-op method they were forced to grow.
 func TestARecorderThatCannotAnnounceIsNotAskedTo(t *testing.T) {
+	starter := &countingStarter{}
 	r := assembleRouter(nil, nil, ProfileEUHosted, &memoryMeter{}, StaticBudget(0), &memCallStore{}, nil, false, nil)
 	lc := newLogicalCall()
 	ctx := principal.WithCorrelationID(context.Background(), ids.NewV7())
@@ -100,6 +109,9 @@ func TestARecorderThatCannotAnnounceIsNotAskedTo(t *testing.T) {
 
 	if lc.railAnnounced {
 		t.Error("a recorder that announces nothing marked the call announced, so a recorder that CAN announce would be skipped after it")
+	}
+	if len(starter.leases) != 0 {
+		t.Errorf("a recorder with no database was handed %d lease(s)", len(starter.leases))
 	}
 }
 

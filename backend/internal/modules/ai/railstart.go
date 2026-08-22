@@ -203,7 +203,13 @@ func (m *CallMeter) announceRailStartTx(ctx context.Context, tx pgx.Tx, c Call, 
 		return fmt.Errorf("ai: log rail start: %w", err)
 	}
 	task := string(c.Task)
-	seconds := int(lease.Seconds())
+	// At least one second, because truncation here has a meaning nobody wants:
+	// the projection reads a lease of 0 as NO lease, and a running occurrence
+	// without one is exactly the row that claims to be working forever. A
+	// sub-second lease is not reachable from railLease today, which is the
+	// reason to clamp rather than reject — a future caller that passes one has
+	// asked for the shortest believable lease, not for an immortal row.
+	seconds := max(int(lease.Seconds()), 1)
 	payload := crmcontracts.InternalEventAiTaskStateChanged{
 		Source:        SourceRouter,
 		OccurrenceKey: key,

@@ -151,8 +151,13 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	// survivable when it began announcing a start, because the start is
 	// committed durable state that only this flush closes.
 	//
-	// The same binding the attempt served itself from, so the flushed trace
-	// files the call under the configuration that actually ran it.
+	// The binding is loaded HERE and not carried out of serveAttempt, so a
+	// rebind during the call files the trace under the configuration current at
+	// flush rather than the one that served it. That is pre-existing and
+	// unchanged by this defer — serveAttempt owns its own `b` and does not
+	// publish it — but the comment that used to sit here claimed the opposite,
+	// and a false claim about which configuration a trace names is worse than
+	// the gap it hid.
 	defer func() { r.flushDetached(ctx, r.binding(), lc) }()
 	return r.serveAttempt(ctx, lc, task, ladder, req, "")
 }

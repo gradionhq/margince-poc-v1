@@ -163,6 +163,26 @@ func TestAStartOutsideACorrelationScopeIsNotAnnounced(t *testing.T) {
 	}
 }
 
+// A sub-second lease must still be a lease. The projection reads stale_after as
+// the whole answer to "is this row still believable", so a lease that truncated
+// to zero seconds would arrive as NO lease — and a running occurrence without
+// one is the row that claims to be working forever, which is the single failure
+// the lease exists to prevent.
+func TestASubSecondLeaseIsStillALease(t *testing.T) {
+	f := newRouterFixture(t)
+
+	f.start(t, ai.TaskSummarize, 500*time.Millisecond)
+	f.drain(t)
+
+	got := f.row(t, ai.TaskSummarize)
+	if got.StaleAfter == nil {
+		t.Fatal("a sub-second lease produced no stale_after, so the occurrence can never read stalled")
+	}
+	if got.StartedAt == nil || !got.StaleAfter.After(*got.StartedAt) {
+		t.Errorf("lease expires at %v, at or before the start %v", got.StaleAfter, got.StartedAt)
+	}
+}
+
 // A carrier owns the whole occurrence, both ends of it. The router staying
 // silent at the settle is already gated; this is the OTHER direction, and it is
 // the one a new emitter gets wrong — announcing a start for work whose carrier
@@ -181,6 +201,22 @@ func TestTheRouterAnnouncesNoStartForACarrierOwnedTask(t *testing.T) {
 	if rows != 0 {
 		t.Fatalf("the router announced %d start(s) for a task the agent runner reports", rows)
 	}
+}
+
+// dbNow reads the DATABASE's clock, which is the one that matters here.
+//
+// stale_after is stamped from the database (started_at + the lease), and the
+// sweep compares it against a cutoff the caller supplies. A cutoff taken from
+// the test host compares two clocks, so these assertions would turn on host
+// drift rather than on the predicate under test — and would fail on somebody
+// else's machine for a reason that has nothing to do with the sweep.
+func (f *routerFixture) dbNow(t *testing.T) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := f.env.Pool.QueryRow(t.Context(), `SELECT now()`).Scan(&now); err != nil {
+		t.Fatalf("reading the database clock: %v", err)
+	}
+	return now
 }
 
 // sweep closes the router occurrences whose lease ran out before cutoff, the
@@ -214,7 +250,7 @@ func TestAStartNothingSettledIsClosedByTheSweep(t *testing.T) {
 		t.Fatalf("state before the sweep = %q, want running", got.State)
 	}
 
-	if closed := f.sweep(t, time.Now().Add(time.Hour)); closed != 1 {
+	if closed := f.sweep(t, f.dbNow(t).Add(time.Hour)); closed != 1 {
 		t.Fatalf("the sweep closed %d occurrences, want 1", closed)
 	}
 
@@ -242,7 +278,7 @@ func TestTheSweepLeavesAnOccurrenceInsideItsLease(t *testing.T) {
 	f.start(t, ai.TaskSummarize, time.Hour)
 	f.drain(t)
 
-	if closed := f.sweep(t, time.Now()); closed != 0 {
+	if closed := f.sweep(t, f.dbNow(t)); closed != 0 {
 		t.Fatalf("the sweep closed %d occurrences that are still inside their lease, want 0", closed)
 	}
 	if got := f.row(t, ai.TaskSummarize); got.State != "running" {
@@ -272,7 +308,7 @@ func TestTheSweepDoesNotCloseACarriersLiveOccurrence(t *testing.T) {
 		t.Fatalf("the runner has %d live occurrences before the sweep, want 1", len(live))
 	}
 
-	closed, err := aiactivity.NewStore(f.env.DB()).CloseAbandonedRouterRuns(ctx, time.Now().Add(365*24*time.Hour))
+	closed, err := aiactivity.NewStore(f.env.DB()).CloseAbandonedRouterRuns(ctx, f.dbNow(t).Add(365*24*time.Hour))
 	if err != nil {
 		t.Fatalf("closing abandoned router occurrences: %v", err)
 	}
