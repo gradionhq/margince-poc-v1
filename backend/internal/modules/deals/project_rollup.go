@@ -27,7 +27,8 @@ import (
 // alone would price every open pipeline at nothing. So an open deal already
 // in the base currency contributes its own amount, and an open deal in
 // another currency contributes nothing until it closes — the same rule the
-// company page's pipeline fold keeps (org360 baseValueOf), spelled in SQL.
+// company page's pipeline fold keeps (org360 baseValueOf), spelled in SQL by
+// OpenDealBaseValueSQL.
 type ProjectDealTotals struct {
 	OpenMinor int64
 	WonMinor  int64
@@ -63,11 +64,10 @@ func (s *Store) ProjectDealTotalsTx(ctx context.Context, tx pgx.Tx, id ids.Proje
 	// An ungrouped aggregate answers exactly one row whatever it counted, so
 	// a project with no deal folds to an honest pair of zeros.
 	err = tx.QueryRow(ctx, storekit.SQLf(`
-		SELECT coalesce(sum(CASE WHEN d.currency = $%d THEN d.amount_minor ELSE d.amount_minor_base END)
-		                FILTER (WHERE d.status = 'open'), 0)::bigint,
+		SELECT coalesce(sum(%s) FILTER (WHERE d.status = 'open'), 0)::bigint,
 		       coalesce(sum(d.amount_minor_base) FILTER (WHERE d.status = 'won'), 0)::bigint
 		FROM deal d
-		WHERE %s`, basePos, strings.Join(where, " AND ")), args...).Scan(&totals.OpenMinor, &totals.WonMinor)
+		WHERE %s`, OpenDealBaseValueSQL("d", storekit.SQLf("$%d", basePos)), strings.Join(where, " AND ")), args...).Scan(&totals.OpenMinor, &totals.WonMinor)
 	if err != nil {
 		return ProjectDealTotals{}, err
 	}

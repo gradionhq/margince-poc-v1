@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -82,6 +83,11 @@ type ListActivitiesInput struct {
 	// preparing for an ERP meeting still wants the relationship's history;
 	// they do not want the datacentre migration.
 	WithinProjectID *ids.ProjectID
+	// OccurredAfter / OccurredBefore bound the timeline to a range: the
+	// lower end inclusive, the upper end exclusive, so a calendar day is
+	// [day 00:00, next day 00:00) with no double-counting at midnight.
+	OccurredAfter  *time.Time
+	OccurredBefore *time.Time
 }
 
 // ListActivities is the timeline read: newest first, optionally scoped to

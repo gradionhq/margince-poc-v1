@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -85,7 +86,7 @@ func (s *Service) activitiesSection(ctx context.Context, tx pgx.Tx, personID ids
 	out.Activities = &struct {
 		Data []crmcontracts.Activity `json:"data"`
 		Page crmcontracts.PageInfo   `json:"page"`
-	}{Data: rows, Page: crmcontracts.PageInfo{HasMore: hasMore}}
+	}{Data: rows, Page: sectionPage(rows, hasMore)}
 	return nil
 }
 
@@ -103,8 +104,22 @@ func (s *Service) nextStepsSection(ctx context.Context, tx pgx.Tx, personID ids.
 	out.NextSteps = &struct {
 		Data []crmcontracts.Activity `json:"data"`
 		Page crmcontracts.PageInfo   `json:"page"`
-	}{Data: rows, Page: crmcontracts.PageInfo{HasMore: hasMore}}
+	}{Data: rows, Page: sectionPage(rows, hasMore)}
 	return nil
+}
+
+// sectionPage is the section's edge in the activities list's own cursor
+// vocabulary: the same (occurred_at, id) keyset GET /activities orders by, so
+// the record page continues from this page's last row rather than fetching
+// page one again and showing every row twice.
+func sectionPage(rows []crmcontracts.Activity, hasMore bool) crmcontracts.PageInfo {
+	info := crmcontracts.PageInfo{HasMore: hasMore}
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		cursor := storekit.EncodeCursor(last.OccurredAt, ids.UUID(last.Id))
+		info.NextCursor = &cursor
+	}
+	return info
 }
 
 // readActivities is the shared body of the timeline and next-step reads.
@@ -136,7 +151,7 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT a.id, a.kind, a.channel_provider, a.subject, a.body, a.direction,
 		       a.occurred_at, a.due_at, a.is_done, a.source, a.captured_by, a.created_at,
-		       a.audience, (%s) AS content_available
+		       a.thread_key, a.bulk_mail_attested, a.audience, (%s) AS content_available
 		FROM activity a
 		WHERE a.archived_at IS NULL AND %s AND (%s)%s %s
 		ORDER BY a.occurred_at DESC, a.id DESC
@@ -151,19 +166,26 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 		var a crmcontracts.Activity
 		var id ids.UUID
 		var audience string
-		var contentAvailable bool
+		var contentAvailable, bulkMailAttested bool
+		var threadKey *string
 		if err := rows.Scan(&id, &a.Kind, &a.ChannelProvider, &a.Subject, &a.Body,
 			&a.Direction, &a.OccurredAt, &a.DueAt, &a.IsDone, &a.Source, &a.CapturedBy,
-			&a.CreatedAt, &audience, &contentAvailable); err != nil {
+			&a.CreatedAt, &threadKey, &bulkMailAttested, &audience, &contentAvailable); err != nil {
 			return nil, false, err
 		}
 		a.Id = openapi_types.UUID(id)
 		aud := crmcontracts.ActivityAudience(audience)
 		a.Audience = &aud
+		// The thread key and the bulk attestation are what lets the record
+		// page fold this page into conversations the way the list's page
+		// folds; the key identifies the message at the provider, so it is
+		// withheld with the content, exactly as the list's scan withholds it.
+		a.BulkMailAttested = &bulkMailAttested
+		a.ThreadKey = threadKey
 		state := crmcontracts.ActivityContentStateAvailable
 		if !contentAvailable {
 			state = crmcontracts.ActivityContentStateWithheld
-			a.Subject, a.Body = nil, nil
+			a.Subject, a.Body, a.ThreadKey = nil, nil, nil
 		}
 		a.ContentState = &state
 		// The link is implied by the read — every row here is linked to this

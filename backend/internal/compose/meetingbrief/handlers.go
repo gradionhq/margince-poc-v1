@@ -32,11 +32,16 @@ func NewHandlers(svc *Service, overlay OverlayMode) Handlers {
 }
 
 // GetMeetingBrief implements GET /activities/{id}/meeting-brief.
-func (h Handlers) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (h Handlers) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.GetMeetingBriefParams) {
 	if !h.native(w, r) {
 		return
 	}
-	brief, err := h.svc.Get(r.Context(), ids.UUID(id))
+	var requested *ids.ProjectID
+	if params.ProjectId != nil {
+		project := ids.From[ids.ProjectKind](ids.UUID(*params.ProjectId))
+		requested = &project
+	}
+	brief, err := h.svc.GetScoped(r.Context(), ids.UUID(id), requested)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

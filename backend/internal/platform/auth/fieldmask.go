@@ -116,6 +116,10 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 	return out, rows.Err()
 }
 
+// sqlNoRow is the clause that admits nothing, for an arm that is closed to
+// this caller outright.
+const sqlNoRow = "FALSE"
+
 // MaskExcludedClause renders the predicate for the rows on which the caller
 // may READ one maskable column — the filter an AGGREGATE over that column
 // applies, so a sum never includes a value the row itself would withhold and
@@ -140,14 +144,14 @@ func MaskExcludedClause(ctx context.Context, object, field, alias string, arg fu
 		if m.Condition != principal.MaskOutsideWriteAuthority {
 			// MaskAlways (and any future stricter condition this switch does
 			// not know) withholds the column on every row: fail closed.
-			return "FALSE", true, nil
+			return sqlNoRow, true, nil
 		}
 		// Write authority is the object's update verb AND the row arm — a
 		// caller whose role lost the verb owns no write authority anywhere,
 		// however many rows the row arm alone would name (the same pair
 		// WritableSubset asks).
 		if !p.Permissions.Allows(object, principal.ActionUpdate) {
-			return "FALSE", true, nil
+			return sqlNoRow, true, nil
 		}
 		if clause == "" {
 			clause = writeAuthorityPredicateAs(p, object, alias, arg)

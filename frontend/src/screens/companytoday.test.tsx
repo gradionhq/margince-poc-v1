@@ -516,7 +516,7 @@ describe("the context line, and which record each reading picks", () => {
   // The MOVES half of the merged brief: a booked meeting's own verb renders
   // as a full-bleed row alongside whatever advice the account has, rather
   // than as a sidebar button beside the context tiles.
-  it("offers to write to the room of a booked meeting as a move row", () => {
+  it("offers to prepare for a booked meeting as a move row", () => {
     const prepared = vi.fn();
     show(
       {
@@ -530,11 +530,12 @@ describe("the context line, and which record each reading picks", () => {
       },
       { onPrepareMeeting: prepared },
     );
-    // The verb names what the button does. It opens the COMPOSER anchored on
-    // the meeting, and there is no meeting brief on the account page to open —
-    // a button reading "Prepare meeting" promised one and delivered a mail
-    // form.
-    fireEvent.click(screen.getByRole("button", { name: "Write to the room" }));
+    // The verb names what the button does: it opens the meeting brief for
+    // this room. It read "Write to the room" while the account page had no
+    // brief drawer and the handler opened the composer instead — the label
+    // and the handler moved together (aiscope.test.tsx pins the
+    // drawer).
+    fireEvent.click(screen.getByRole("button", { name: "Prepare meeting" }));
     expect(prepared).toHaveBeenCalledWith("a-1");
   });
 

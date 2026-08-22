@@ -19,6 +19,12 @@ import { type TimelineEntry, TimelineRow } from "../design-system/composed";
 import { EvidenceMark } from "../design-system/evidencemark";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import {
+  liveProjects,
+  type PickableProject,
+  ProjectPicker,
+  useSoleProjectDefault,
+} from "../design-system/projectpicker";
 import { Select } from "../design-system/select";
 import { StatStrip } from "../design-system/statstrip";
 import {
@@ -99,6 +105,7 @@ const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
   new_opportunity: "signal.kind.new_opportunity",
   commitment_made: "signal.kind.commitment_made",
   ghosted_thread: "signal.kind.ghosted_thread",
+  project_gone_quiet: "signal.kind.project_gone_quiet",
 };
 
 // The strip's signal kind is an open string on the wire, on purpose: the strip
@@ -1844,8 +1851,8 @@ export function AccountBrief({
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
-  // this is for the one thing it cannot write — whether any of the account
-  // was withheld from this reader.
+  // this is for the two things it cannot write — whether any of the account
+  // was withheld from this reader, and which projects it can be about.
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
@@ -1853,12 +1860,25 @@ export function AccountBrief({
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
+  // The project the brief is about. Part of the query key, so a scoped brief
+  // and the whole account's are two cached readings rather than one
+  // overwriting the other on screen.
+  //
+  // No sole-project default here, unlike the composers and the questions:
+  // the brief is fetched on open, so a default applied after the page's
+  // projects arrive would make every open of a one-project account two
+  // reads — the whole account's, then the project's — and the server
+  // rewrites the brief on each switch. The standing brief is the account's;
+  // a reader narrows it on purpose.
+  const [projectId, setProjectId] = useState("");
+  const projects = liveProjects(view?.projects);
+  const query = projectId ? { project_id: projectId } : undefined;
   const brief = useQuery({
-    queryKey: ["org-brief", orgId],
+    queryKey: ["org-brief", orgId, projectId],
     enabled,
     queryFn: async () => {
       const { data, error } = await api.GET("/organizations/{id}/brief", {
-        params: { path: { id: orgId } },
+        params: { path: { id: orgId }, query },
       });
       if (error) {
         throwProblem(error);
@@ -1867,16 +1887,22 @@ export function AccountBrief({
     },
   });
   const rewrite = useMutation({
-    mutationFn: async () => {
+    // The project rides as the variable, so a rewrite pressed after a switch
+    // rewrites the brief on screen rather than the one a stale closure saw.
+    mutationFn: async (project: string) => {
       const { data, error } = await api.POST("/organizations/{id}/brief", {
-        params: { path: { id: orgId } },
+        params: {
+          path: { id: orgId },
+          query: project ? { project_id: project } : undefined,
+        },
       });
       if (error) {
         throwProblem(error);
       }
       return data;
     },
-    onSuccess: (data) => queryClient.setQueryData(["org-brief", orgId], data),
+    onSuccess: (data, project) =>
+      queryClient.setQueryData(["org-brief", orgId, project], data),
   });
 
   if (!enabled) {
@@ -1894,7 +1920,7 @@ export function AccountBrief({
       <WrittenBy by={readable.generated_by} />
       <Button
         small
-        onClick={() => rewrite.mutate()}
+        onClick={() => rewrite.mutate(projectId)}
         disabled={rewrite.isPending}
       >
         {rewrite.isPending ? t("co.brief.rewriting") : t("co.brief.rewrite")}
@@ -1917,6 +1943,12 @@ export function AccountBrief({
       footer={footer}
     >
       <PanelBody className="co-brief-body">
+        <ProjectPicker
+          projects={projects}
+          projectId={projectId}
+          onChange={setProjectId}
+          scope={readable?.scope}
+        />
         {brief.isPending && <Skeleton width="100%" height={64} />}
         {/* Errored, or answered with a payload this build cannot read: both are
             "no brief to show", and rendering the panel over nothing would be a
@@ -2022,18 +2054,34 @@ export function AskSection({
   orgId,
   enabled,
   onOpenRecord,
+  projects,
 }: Readonly<{
   orgId: string;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // The account's projects, as the page read them. Offered as a picker
+  // when any is live, so a question can be asked about one engagement
+  // rather than the whole account.
+  projects?: readonly PickableProject[];
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  const [projectId, setProjectId] = useState("");
+  const live = liveProjects(projects);
+  useSoleProjectDefault(live, projectId, setProjectId);
   const ask = useMutation({
-    mutationFn: async (question: Question) => {
+    // The project travels as the mutation variable beside the question, so
+    // a stale closure cannot ask about a project the picker no longer shows.
+    mutationFn: async ({
+      question,
+      project,
+    }: {
+      question: Question;
+      project: string;
+    }) => {
       const { data, error } = await api.POST("/organizations/{id}/ask", {
         params: { path: { id: orgId } },
-        body: { question },
+        body: { question, ...(project ? { project_id: project } : {}) },
       });
       if (error) {
         throwProblem(error);
@@ -2052,12 +2100,23 @@ export function AskSection({
   return (
     <section className="co-part" aria-label={t("co.ask.title")}>
       <Eyebrow as="h3">{t("co.ask.title")}</Eyebrow>
+      <ProjectPicker
+        projects={live}
+        projectId={projectId}
+        onChange={(next) => {
+          setProjectId(next);
+          // The answer on screen was written about the previous project, and
+          // its scope line would otherwise stand over the next project's key.
+          ask.reset();
+        }}
+        scope={readable?.scope}
+      />
       <p className="co-ask-questions">
         {QUESTIONS.map((question) => (
           <Button
             key={question}
             small
-            onClick={() => ask.mutate(question)}
+            onClick={() => ask.mutate({ question, project: projectId })}
             disabled={ask.isPending}
           >
             {t(`co.ask.q.${question}`)}

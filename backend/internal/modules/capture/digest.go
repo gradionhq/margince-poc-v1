@@ -13,12 +13,14 @@ package capture
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DigestPayload is the stored CAP-DDL-6 payload — the wire shape verbatim.
@@ -28,6 +30,9 @@ type DigestPayload struct {
 	Capture     DigestCapture   `json:"capture"`
 	Review      DigestReview    `json:"review"`
 	Connectors  []DigestConnRow `json:"connectors"`
+	// Projects is what moved on the bodies of work overnight
+	// (digestprojects.go). Absent when the build had no source for it.
+	Projects *DigestProjects `json:"projects,omitempty"`
 }
 
 // DigestCapture is what landed in the window.
@@ -168,7 +173,45 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 	if p.Connectors == nil {
 		p.Connectors = []DigestConnRow{}
 	}
-	return p, rows.Err()
+	if err := rows.Err(); err != nil {
+		return DigestPayload{}, err
+	}
+	if r.digestProjects != nil {
+		// Per READER, unlike the counts above: the section names projects and
+		// the work on them, so it is built under this user's own live grants
+		// and row scope, and a user with no project grant gets none.
+		readerCtx, err := r.digestReaderContext(ctx, userID)
+		if err != nil {
+			return DigestPayload{}, err
+		}
+		projects, err := r.digestProjects(readerCtx, tx, since, p.GeneratedAt)
+		if err != nil {
+			return DigestPayload{}, fmt.Errorf("capture: digest projects section: %w", err)
+		}
+		p.Projects = projects
+	}
+	return p, nil
+}
+
+// digestReaderContext binds the digest's reader as the acting principal,
+// with the LIVE authority the resolver answers — the same source the
+// connector context reads the granting human's from.
+func (r *Registry) digestReaderContext(ctx context.Context, userID ids.UUID) (context.Context, error) {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return nil, errors.New("capture: digest build outside workspace context")
+	}
+	rbac, err := r.authority.EffectiveRBAC(ctx, wsID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("capture: resolving the digest reader's authority: %w", err)
+	}
+	return principal.WithActor(ctx, principal.Principal{
+		Type:        principal.PrincipalHuman,
+		ID:          "human:" + userID.String(),
+		UserID:      userID,
+		TeamIDs:     rbac.TeamIDs,
+		Permissions: rbac.Permissions,
+	}), nil
 }
 
 // ReadDigest serves the calling user's digest: the requested day, or the

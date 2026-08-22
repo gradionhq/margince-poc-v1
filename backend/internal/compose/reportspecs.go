@@ -14,9 +14,30 @@ import (
 const (
 	fieldKind      = "kind"
 	fieldDirection = "direction"
+	fieldProject   = "project"
 	colKind        = "t.kind"
 	colDirection   = "t.direction"
+
+	// activityProjectIDExpr is the project an activity is filed under, read
+	// off its activity_link row. It is a scalar because the schema admits at
+	// most one project link per activity (uq_activity_link_project), which is
+	// what lets ONE expression serve as the dimension, the filter and the
+	// drill-through column: `expr = $n` is exactly "EXISTS an activity_link
+	// naming that project", and NULL is exactly "filed under none".
+	activityProjectIDExpr = "(SELECT al.project_id FROM activity_link al" +
+		" WHERE al.activity_id = t.id AND al.entity_type = 'project')"
+	// activityProjectLabelExpr is that project as a reader sees it — its key
+	// when it has one, else its name — so a breakdown by project needs no
+	// second lookup to be readable.
+	activityProjectLabelExpr = "(SELECT coalesce(p.key, p.name) FROM activity_link al" +
+		" JOIN project p ON p.id = al.project_id" +
+		" WHERE al.activity_id = t.id AND al.entity_type = 'project')"
 )
+
+// projectFilterScope is the read gate every report filtering by project_id
+// runs before the filter binds (reportthreshold.go requireFilterScopes): the
+// project grant, then the live row probe.
+var projectFilterScope = map[string]string{fieldProjectID: tableProject}
 
 // The prebuilt report catalog: WHAT each report asks, as data.
 //
@@ -51,7 +72,9 @@ var prebuiltReports = map[string]reportSpec{
 			fieldOwnerID:    colOwnerID,
 			fieldPipelineID: colPipelineID,
 			fieldCurrency:   colCurrency,
+			fieldProjectID:  colProjectID,
 		},
+		filterScopes: projectFilterScope,
 		// The company a deal points at is row-scoped and masked on a normal
 		// deal read, so grouping by it carries the same obligation the partner
 		// dimension does.
@@ -98,7 +121,9 @@ var prebuiltReports = map[string]reportSpec{
 			fieldPartnerSourced: deals.PartnerSourcedSQL("t"),
 			fieldStalled:        deals.StalledSQL("t"),
 			fieldCurrency:       colCurrency,
+			fieldProjectID:      colProjectID,
 		},
+		filterScopes: projectFilterScope,
 		// partner_org_id points at an organization, which a normal deal read
 		// masks per row when the caller cannot open it.
 		referenceScopes: map[string]string{colPartnerOrgID: tableOrganization},
@@ -114,10 +139,31 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere:    whereArchivedNull,
 		basePlain:    "live (unarchived) activities",
 		activityWalk: true,
-		dimensions:   map[string]string{fieldKind: colKind, fieldDirection: colDirection},
-		measures:     map[string]string{},
-		filters:      map[string]string{fieldKind: colKind, fieldDirection: colDirection},
-		defaultBy:    []string{fieldKind},
+		dimensions: map[string]string{
+			fieldKind:      colKind,
+			fieldDirection: colDirection,
+			// Grouping by the project an activity is filed under answers
+			// which bodies of work consumed the meeting and call effort; an
+			// unfiled activity lands in the NULL group, which the wire reads
+			// as "no project".
+			fieldProjectID: activityProjectIDExpr,
+			fieldProject:   activityProjectLabelExpr,
+		},
+		measures: map[string]string{},
+		filters: map[string]string{
+			fieldKind:      colKind,
+			fieldDirection: colDirection,
+			fieldProjectID: activityProjectIDExpr,
+		},
+		filterScopes: projectFilterScope,
+		// The project a filed activity names is row-scoped; grouping by it
+		// carries the same obligation the deal reports' company columns do,
+		// and naming it at all — id or label — takes the project grant.
+		referenceScopes: map[string]string{activityProjectIDExpr: tableProject},
+		grants:          map[string]string{fieldProjectID: tableProject, fieldProject: tableProject},
+		notes: "project_id admits exactly the activities filed under that project (an activity_link row " +
+			"naming it); an activity filed nowhere, or under another project, is excluded",
+		defaultBy: []string{fieldKind},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: "activities"},
 		},
@@ -126,6 +172,11 @@ var prebuiltReports = map[string]reportSpec{
 	// rather than spelled inline: it carries the period-bucket vocabulary with
 	// it, and that vocabulary belongs beside the buckets it names.
 	"win-loss": winLossSpec(),
+	// The project keys (reportprojects.go): what a delivery manager asks of
+	// the bodies of work in flight.
+	"projects-by-phase":   projectsByPhaseSpec(),
+	"project-commitments": projectCommitmentsSpec(),
+	"projects-gone-quiet": projectsGoneQuietSpec(),
 	// The forecast (B-E09.10) is a parameterized report over this same
 	// engine, not a separate subsystem. Weighted value follows
 	// formulas-and-rules §6: round(amount_minor × stage.win_probability
@@ -158,8 +209,10 @@ var prebuiltReports = map[string]reportSpec{
 			fieldPipelineID:     colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			fieldCurrency:       colCurrency,
+			fieldProjectID:      colProjectID,
 		},
-		defaultBy: moneyDefaultBy("forecast_category"),
+		filterScopes: projectFilterScope,
+		defaultBy:    moneyDefaultBy("forecast_category"),
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "unweighted_minor"},

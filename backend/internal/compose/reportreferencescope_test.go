@@ -22,8 +22,10 @@ import (
 //
 // gatekit:fixture the reference columns a report row can carry, and the table each points at
 var referenceColumns = map[string]string{
-	colOrganizationID: tableOrganization,
-	colPartnerOrgID:   tableOrganization,
+	colOrganizationID:     tableOrganization,
+	colPartnerOrgID:       tableOrganization,
+	colProjectID:          tableProject,
+	activityProjectIDExpr: tableProject,
 }
 
 func TestEveryReferenceDimensionDeclaresItsScope(t *testing.T) {
@@ -54,8 +56,11 @@ func TestEveryReferenceDimensionDeclaresItsScope(t *testing.T) {
 func TestEveryDeclaredReferenceScopeNamesARowScopedTable(t *testing.T) {
 	for name, spec := range prebuiltReports {
 		for column, table := range spec.referenceScopes {
-			if !strings.HasPrefix(column, "t.") {
-				t.Errorf("%s scopes %q, which is not a column of the report's own row", name, column)
+			// A reference is a column of the row (`t.x`) or a scalar read off
+			// the row (`... WHERE al.activity_id = t.id`); either way it must
+			// name the report's own row alias, or the clause binds nothing.
+			if !strings.Contains(column, "t.") {
+				t.Errorf("%s scopes %q, which does not read the report's own row", name, column)
 			}
 			if table == "" {
 				t.Errorf("%s scopes %q against no table", name, column)

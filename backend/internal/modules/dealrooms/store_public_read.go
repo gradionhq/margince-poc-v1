@@ -103,6 +103,10 @@ func (s *Store) BuyerView(ctx context.Context, sess Session) (crmcontracts.Buyer
 		}
 		out.Access = crmcontracts.BuyerRoomAccess(st.access(time.Now()))
 		out.StewardName = st.stewardName
+		if sess.Preview {
+			preview := true
+			out.Preview = &preview
+		}
 		if !servesContent(string(out.Access)) || st.snapshot == nil {
 			return nil
 		}

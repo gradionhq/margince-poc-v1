@@ -46,6 +46,9 @@ type Input struct {
 	// what a recurring delivery review opens wanting: not the state of play,
 	// but what was agreed here last time.
 	PriorMeetings []PriorMeetingIn
+	// LastSpokeAt is when the READER last dealt with anyone in the room — the
+	// baseline "what changed" is measured from. Nil is first contact.
+	LastSpokeAt *time.Time
 	// LastTouchAt is the newest conversation with anyone in the room before
 	// this meeting. Nil means nothing was ever captured with any of them.
 	LastTouchAt *time.Time
@@ -111,6 +114,8 @@ type ClaimIn struct {
 	// the promise was made without pasting a record id into the text.
 	SourceLabel string
 	DueAt       *time.Time
+	// OccurredAt is when the claim was made, for ranking the newer first.
+	OccurredAt *time.Time
 }
 
 // ActIn is one recent conversation as the brief reads it.
@@ -183,6 +188,7 @@ func foldClaims(personName string, found []crmcontracts.ConversationClaim) []Cla
 			Status:     string(claim.Status),
 			SourceID:   ids.UUID(claim.SourceActivityId).String(),
 			DueAt:      claim.DueAt,
+			OccurredAt: claim.OccurredAt,
 		}
 		if claim.SourceLabel != nil {
 			folded.SourceLabel = *claim.SourceLabel

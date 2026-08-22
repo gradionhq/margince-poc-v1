@@ -1,12 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -22,12 +16,19 @@ import {
 import { ChoiceList } from "../design-system/choicelist";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import {
+  liveProjects,
+  ProjectPicker,
+  type ProjectScope,
+  useSoleProjectDefault,
+} from "../design-system/projectpicker";
+import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { Select, type SelectOption } from "../design-system/select";
 import { viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
+import { entityTimelineKeys } from "./activitykeys";
 import {
   isConsentNotGranted,
   ProblemError,
@@ -164,9 +165,9 @@ export function RelinkModal({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       onClose();
     },
   });
@@ -234,6 +235,7 @@ function fillFromDraft(
     setDraftRef: (next: string | null) => void;
     setProvenance: (next: DraftProvenance) => void;
     setReasoning: (next: components["schemas"]["AccountDraftReason"][]) => void;
+    setScope: (next: ProjectScope | undefined) => void;
   }>,
 ) {
   const drafted = result.draft;
@@ -252,6 +254,7 @@ function fillFromDraft(
       voice_profile_version: drafted.voice_profile_version,
     });
     form.setReasoning(result.reasoning ?? []);
+    form.setScope(result.scope);
   }
   if (form.toEmpty && drafted.to?.length) {
     form.setTo(drafted.to);
@@ -337,7 +340,12 @@ async function draftFromAccount({
   if (!response.ok || !data) {
     throwProblem(error || { title: t("compose.actionFailed") });
   }
-  return { available: true as const, draft: data, reasoning: data.reasoning };
+  return {
+    available: true as const,
+    draft: data,
+    reasoning: data.reasoning,
+    scope: data.scope,
+  };
 }
 
 // What either drafting path answers.
@@ -364,6 +372,9 @@ type DraftResult =
       // Present only on the account-started path; a reply explains itself by
       // the message it is answering.
       reasoning?: components["schemas"]["AccountDraftReason"][];
+      // Likewise account-only: what the scoped read kept, when a project was
+      // chosen.
+      scope?: ProjectScope;
     };
 
 // The account-started path's own state: who the draft is grounded on, which
@@ -386,6 +397,9 @@ function useAccountGrounding(
   const [reasoning, setReasoning] = useState<
     components["schemas"]["AccountDraftReason"][]
   >([]);
+  // The server's scope report for the draft on screen; retired with the
+  // reasons, because it describes the same read.
+  const [scope, setScope] = useState<ProjectScope | undefined>(undefined);
   // Changing who the draft is to, or which deal it is about, retires the draft
   // that was written for the previous pair. Leaving it would show a message
   // addressed to B carrying A's words, A's disclosure and A's reasons — and
@@ -394,6 +408,7 @@ function useAccountGrounding(
   const reground = (apply: (next: string) => void) => (next: string) => {
     apply(next);
     setReasoning([]);
+    setScope(undefined);
     onGroundingChanged();
   };
   return {
@@ -406,6 +421,8 @@ function useAccountGrounding(
     grounding: { recipientId, dealId, projectId } satisfies Grounding,
     reasoning,
     setReasoning,
+    scope,
+    setScope,
   };
 }
 
@@ -537,6 +554,7 @@ function AccountDraftContext({
   onDealChange,
   projectId,
   onProjectChange,
+  scope,
 }: Readonly<{
   orgId: string;
   recipientId: string;
@@ -545,6 +563,7 @@ function AccountDraftContext({
   onDealChange: (next: string) => void;
   projectId: string;
   onProjectChange: (next: string) => void;
+  scope?: ProjectScope;
 }>) {
   const t = useT();
   const query = useOrganization360(orgId);
@@ -599,93 +618,8 @@ function AccountDraftContext({
         projects={projects}
         projectId={projectId}
         onChange={onProjectChange}
+        scope={scope}
       />
-    </>
-  );
-}
-
-// One project as the two composers' picker shows it: the fields the
-// Organization360 and Person360 `projects` sections share.
-type PickableProject = Pick<
-  components["schemas"]["Organization360Project"],
-  "project_id" | "name" | "key" | "phase"
->;
-
-// The projects a message can be filed under: the unarchived ones the page
-// carries, minus the closed — a closed project is history, and a new message
-// is not about history.
-export function liveProjects(
-  projects: readonly PickableProject[] | undefined,
-): PickableProject[] {
-  return (projects ?? []).filter((project) => project.phase !== "closed");
-}
-
-// When the account carries exactly ONE live project, it is the default — a rep
-// writing from a company with one engagement should not have to say so. The
-// default is applied ONCE, when the page's projects first arrive, so a rep
-// who then picks "no project" is not overruled on the next render; and it is
-// applied through the same setter a pick uses, so the selected value RENDERS
-// rather than being sent silently.
-export function useSoleProjectDefault(
-  projects: readonly PickableProject[],
-  projectId: string,
-  onChange: (next: string) => void,
-) {
-  const defaulted = useRef(false);
-  const sole = projects.length === 1 ? projects[0].project_id : "";
-  useEffect(() => {
-    if (defaulted.current || !sole) {
-      return;
-    }
-    defaulted.current = true;
-    if (!projectId) {
-      onChange(sole);
-    }
-  }, [sole, projectId, onChange]);
-}
-
-// The project picker both composers render, and the scope line beneath it:
-// a draft written about one project says so, in the project's own key, so a
-// rep can see which body of work the words are standing on before reading
-// them.
-export function ProjectPicker({
-  projects,
-  projectId,
-  onChange,
-}: Readonly<{
-  projects: readonly PickableProject[];
-  projectId: string;
-  onChange: (next: string) => void;
-}>) {
-  const t = useT();
-  if (projects.length === 0) {
-    return null;
-  }
-  const chosen = projects.find((project) => project.project_id === projectId);
-  return (
-    <>
-      <label className="t-body compose-check">
-        {t("compose.project")}
-        <Select
-          aria-label={t("compose.project")}
-          options={[
-            { value: "", label: t("compose.projectNone") },
-            ...projects.map((project) => ({
-              value: project.project_id,
-              label: project.key
-                ? `${project.key} · ${project.name}`
-                : project.name,
-            })),
-          ]}
-          value={projectId}
-          onChange={onChange}
-        />
-      </label>
-      {chosen && (
-        <p className="t-caption">
-          {t("compose.scopedTo", { key: chosen.key ?? chosen.name })}
-        </p>
-      )}
     </>
   );
 }
@@ -1354,6 +1288,7 @@ export function ComposeModal({
     setDraftRef(null);
     setProvenance(null);
     account.setReasoning([]);
+    account.setScope(undefined);
   };
 
   const draft = useDraftMutation({
@@ -1373,6 +1308,7 @@ export function ComposeModal({
         setDraftRef,
         setProvenance,
         setReasoning: account.setReasoning,
+        setScope: account.setScope,
       }),
     resetUnavailable: () => setDraftUnavailable(false),
     t,
@@ -1471,9 +1407,9 @@ export function ComposeModal({
         setSendUnavailable(true);
         return;
       }
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       onClose();
     },
   });
@@ -1532,6 +1468,7 @@ export function ComposeModal({
       onDealChange={account.setDealId}
       projectId={account.projectId}
       onProjectChange={account.setProjectId}
+      scope={account.scope}
     />
   ) : null;
   const accountReasons = (
@@ -1859,9 +1796,9 @@ export function AudienceAction({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       setOpen(false);
     },
   });

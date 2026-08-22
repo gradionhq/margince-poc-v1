@@ -5,6 +5,9 @@ package signals
 
 import (
 	"context"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -65,16 +68,23 @@ type NoWarmthError struct{ Reason string }
 func (e *NoWarmthError) Error() string { return e.Reason }
 
 // signalEntityTables is the store-side spelling of the schema's
-// signal_entity_type CHECK: a signal's subject is a deal, organization
-// or person. The client-supplied type flows on to a table-name seam
+// signal_entity_type CHECK: a signal's subject is a deal, organization,
+// person or project. The client-supplied type flows on to a table-name seam
 // (the link-target probe), so the store pins the set itself instead of
 // leaning on transport enum validation alone.
-var signalEntityTables = map[string]bool{"deal": true, "organization": true, "person": true}
+// TestSignalEntityTablesMatchTheSchemaCheck holds it to the constraint.
+var signalEntityTables = map[string]bool{"deal": true, "organization": true, "person": true, "project": true}
+
+// SignalEntityTables lists the subject types a signal may carry, sorted —
+// the same set the schema CHECK admits, for a reader that has to spell it.
+func SignalEntityTables() []string {
+	return slices.Sorted(maps.Keys(signalEntityTables))
+}
 
 // InvalidSignalEntityTypeError answers 422: the subject type is outside
 // the signal_entity_type set.
 type InvalidSignalEntityTypeError struct{ EntityType string }
 
 func (e *InvalidSignalEntityTypeError) Error() string {
-	return "entity_type " + e.EntityType + " is not one of deal, organization, person"
+	return "entity_type " + e.EntityType + " is not one of " + strings.Join(SignalEntityTables(), ", ")
 }

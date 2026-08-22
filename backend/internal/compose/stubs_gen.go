@@ -59,7 +59,7 @@ func (stubs) DraftEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "DraftEmail")
 }
 
-func (stubs) GetMeetingBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetMeetingBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetMeetingBriefParams) {
 	httperr.NotImplemented(w, r, "GetMeetingBrief")
 }
 
@@ -615,6 +615,10 @@ func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "PauseDealRoom")
 }
 
+func (stubs) PreviewDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewDealRoom")
+}
+
 func (stubs) PublishDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "PublishDealRoom")
 }
@@ -665,6 +669,10 @@ func (stubs) UpdateDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AdvanceDealParams) {
 	httperr.NotImplemented(w, r, "AdvanceDeal")
+}
+
+func (stubs) GetDealBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealBrief")
 }
 
 func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
@@ -1067,11 +1075,11 @@ func (stubs) AskAboutOrganization(w nethttp.ResponseWriter, r *nethttp.Request, 
 	httperr.NotImplemented(w, r, "AskAboutOrganization")
 }
 
-func (stubs) GetOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationBriefParams) {
 	httperr.NotImplemented(w, r, "GetOrganizationBrief")
 }
 
-func (stubs) RegenerateOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) RegenerateOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RegenerateOrganizationBriefParams) {
 	httperr.NotImplemented(w, r, "RegenerateOrganizationBrief")
 }
 

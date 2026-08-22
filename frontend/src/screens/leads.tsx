@@ -18,13 +18,18 @@ import { RecordView } from "../design-system/composed";
 import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
 import { InlineChoice, InlineText } from "../design-system/inlinechoice";
 import { Panel, PanelBody } from "../design-system/panel";
-import { useRecordTimeline } from "../design-system/recordtimeline";
+import {
+  useRecordTimeline,
+  useTimelineFilters,
+} from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
+import { TimelineFilterBar } from "../design-system/timelinefilterbar";
 import { formatDateAbbrev } from "../format/format";
 import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
+  LoadMoreButton,
   OverlayUnavailable,
   problemMessageOf,
   QueryGate,
@@ -59,6 +64,7 @@ import { LeadStepper } from "./leads.stepper";
 import { LeadManualSignals } from "./leadsignals";
 import { LogActivity } from "./logactivity";
 import { ShareAction } from "./share";
+import { groupChronology } from "./timelinegroups";
 import "./leads.css";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
@@ -1519,8 +1525,12 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   // A lead's own activities: what we already did about this prospect
   // (ADR-0118/A169). `activity_link` has carried the lead arm since migration
   // 0038; only the screen was missing.
-  const timelineQuery = useRecordTimeline("lead", id);
+  const [timelineFilters, setTimelineFilters] = useTimelineFilters(id);
+  const timelineQuery = useRecordTimeline("lead", id, {
+    filters: timelineFilters,
+  });
   const viewerId = useViewerId();
+  const timelineEntries = activityTimeline(timelineQuery.activities, viewerId);
   const [dialog, setDialog] = useState<"qualify" | "disqualify" | null>(null);
   // What the last qualify did, said once under the header: the contact and,
   // when one was opened, the deal. The page stays (ADR-0119): a promoted
@@ -1576,11 +1586,20 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
             // the honest default for a prospect: a lead carries no workspace
             // location of its own to prefer over where the reader is.
             zone={viewerZone()}
-            timeline={
-              timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data, viewerId)
-                : []
+            timeline={timelineEntries}
+            timelineGroups={groupChronology(
+              timelineEntries,
+              timelineQuery.hasNextPage,
+            )}
+            timelineHeader={
+              overlay ? undefined : (
+                <TimelineFilterBar
+                  value={timelineFilters}
+                  onChange={setTimelineFilters}
+                />
+              )
             }
+            timelineFooter={<LoadMoreButton query={timelineQuery} />}
             timelineNotice={timelineZoneNotice(
               { overlay, pending: timelineQuery.isPending },
               t,

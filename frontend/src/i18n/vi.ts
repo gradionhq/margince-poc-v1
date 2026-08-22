@@ -697,6 +697,19 @@ export const vi = {
   "timeline.group.collapse": "Đóng",
   "timeline.group.openThread": "Xem toàn bộ luồng",
   "timeline.group.mayContinue": "có thể còn tiếp phía trước",
+  "timeline.filters.kind": "Loại hoạt động",
+  "timeline.filters.kind.all": "Mọi loại",
+  "timeline.filters.kind.email": "Email",
+  "timeline.filters.kind.message": "Tin nhắn",
+  "timeline.filters.kind.call": "Cuộc gọi",
+  "timeline.filters.kind.meeting": "Cuộc họp",
+  "timeline.filters.kind.note": "Ghi chú",
+  "timeline.filters.kind.task": "Công việc",
+  "timeline.filters.search": "Tìm trong dòng thời gian này",
+  "timeline.filters.from": "Từ",
+  "timeline.filters.to": "Đến",
+  "timeline.filters.searchOmitsLimited":
+    "Khi tìm kiếm, những cuộc trò chuyện bạn không được mở nội dung sẽ không xuất hiện.",
   "tab.people": "Người",
   "tab.deals": "Deals",
   "tab.tasks": "Công việc",
@@ -745,6 +758,7 @@ export const vi = {
   "signal.kind.new_opportunity": "Cơ hội mới",
   "signal.kind.commitment_made": "Đã có lời hứa",
   "signal.kind.ghosted_thread": "Không hồi đáp",
+  "signal.kind.project_gone_quiet": "Dự án đã im ắng",
   "co.routeIn.open": "Đường tiếp cận",
   "co.routeIn.title": "Ai bên mình trao đổi với {name}",
   "co.routeIn.none": "Chưa ai bên mình viết cho họ.",
@@ -810,6 +824,10 @@ export const vi = {
     "Điều người mua đọc đầu tiên. Đến với họ ở lần công bố tiếp theo.",
   "roompage.text.titleLabel": "Tiêu đề phòng",
   "roompage.text.welcomeLabel": "Lời chào",
+  "roompage.viewAsBuyer": "Xem như người mua",
+  "roompage.previewDraft":
+    "Hãy công bố trước — người mua chỉ thấy bản đã công bố.",
+  "roompage.previewArchived": "Phòng đã lưu trữ không có gì để xem trước.",
   "roompage.publish": "Công bố",
   "roompage.publishFinished":
     "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
@@ -886,6 +904,13 @@ export const vi = {
   "access.revokeBody":
     "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
   "access.changeCapabilityTitle": "{name} được làm gì?",
+  "persondealrooms.title": "Deal Room",
+  "persondealrooms.sub": "Các phòng liên hệ này vẫn có thể vào.",
+  "persondealrooms.open": "Mở",
+  "persondealrooms.seatGone": "Địa chỉ này không còn chỗ trong phòng đó.",
+  "persondealrooms.cut":
+    "Chỉ hiện các phòng đầu tiên; liên hệ này còn ở trong các phòng khác.",
+  "persondealrooms.revokeTitle": "Thu hồi quyền vào {room}?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -1257,6 +1282,7 @@ export const vi = {
   "co.connections.group.our_side": "ai bên mình có kết nối",
   "co.signals.title": "Tín hiệu",
   "co.signals.empty": "Không có tín hiệu nào đang mở trên tài khoản này.",
+  "co.signals.openProject": "Mở dự án",
   "chronology.label": "Hiện gì trên timeline",
   "chronology.activities": "Hoạt động",
   "chronology.changes": "Thay đổi",
@@ -1904,6 +1930,13 @@ export const vi = {
   "home.digestDedupe": "Trùng lặp cần rà",
   "home.digestClassify":
     "Phân loại qua đêm: {commitments} cam kết · {meetings} cuộc họp · {noise} nhiễu",
+  "home.digestProjects": "Dự án",
+  "home.digestPhaseChanges": "Chuyển giai đoạn",
+  "home.digestNewCommitments": "Cam kết mới",
+  "home.digestGoneQuiet": "Đã im ắng",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} cam kết mới còn mở",
+  "home.digestQuietDays": "im ắng {days} ngày",
 
   "enrich.title": "Đọc từ website",
   "enrich.sub":
@@ -2056,7 +2089,7 @@ export const vi = {
   "today.source.nextSteps": "công việc đang mở",
   "today.source.nextMeeting": "lịch",
   "today.source.deals": "deal",
-  "today.meeting.prepare": "Viết cho người tham dự",
+  "today.meeting.prepare": "Chuẩn bị cuộc họp",
   "today.source.people": "các liên hệ",
   "today.source.standing": "phía nào cần hành động và các tín hiệu",
   "today.source.activities": "những gì đã trao đổi",
@@ -2267,6 +2300,8 @@ export const vi = {
   "compose.relatedToNone": "Toàn bộ tài khoản",
   "compose.project": "Dự án",
   "compose.projectNone": "Không có dự án",
+  "compose.scopedToCounted":
+    "Giới hạn trong {key} · {inScope} trên {total} hoạt động",
   "compose.scopedTo": "Giới hạn trong {key}",
   "compose.basedOn": "Dựa trên: {inputs}",
   "compose.whyThisDraft": "Vì sao có bản nháp này?",
@@ -3912,6 +3947,9 @@ export const vi = {
   "ob.payoff.seats":
     "Việc còn lại là các đồng nghiệp của bạn. Mỗi suất người dùng đều tính phí, nên bạn tạo họ trong Cài đặt → Người dùng.",
   "ob.payoff.understood": "Đã rõ",
+  "ob.payoff.projects":
+    "Khi một thương vụ trở thành công việc, hãy mở một dự án cho nó: dự án bắt đầu ngay trong thương vụ và tiếp tục sau khi chốt thắng, để việc triển khai có dòng thời gian riêng.",
+  "ob.payoff.projectsLink": "Xem dự án",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Vào Margince",
@@ -4195,6 +4233,10 @@ export const vi = {
   "buyer.eyebrow": "Phòng giao dịch (Deal Room)",
   "buyer.contact": "Người liên hệ của bạn: {steward}.",
   "buyer.closed": "Phòng này đã đóng; những gì đã chia sẻ giờ là bản ghi.",
+  "buyer.previewBanner":
+    "Bạn đang xem trước phòng này như người mua sẽ thấy. Bạn có thể đọc mọi thứ và không thay đổi gì.",
+  "buyer.previewReadOnly":
+    "Bản xem trước không thể ghi. Đóng tab này để quay lại trang Deal Room.",
   "buyer.closedNote": "Phòng này hiện chỉ đọc.",
   "buyer.stewardUnknown": "người liên hệ của bạn",
   "buyer.signOut": "Đăng xuất",
@@ -4246,6 +4288,17 @@ export const vi = {
   "room.decisions.empty": "Chưa có quyết định.",
   "room.decisions.confirm_version": "đã xác nhận phiên bản",
   "room.decisions.request_changes": "đã yêu cầu thay đổi",
+  "dealbrief.title": "Tóm tắt giao dịch",
+  "dealbrief.sub":
+    "Giao dịch đang ở đâu, bằng những câu bạn có thể kiểm chứng.",
+  "dealbrief.empty": "Chưa có gì trong hồ sơ.",
+  "dealbrief.standing": "Hiện trạng",
+  "dealbrief.activity": "Gần nhất và tiếp theo",
+  "dealbrief.open": "Còn nợ",
+  "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Cuộc họp tiếp theo",
+  "dealmeeting.untitled": "Cuộc họp",
+  "dealmeeting.openBrief": "Mở bản tóm tắt",
   "nba.title": "Bước tiếp theo",
   "nba.sub": "Một việc cần làm trên giao dịch này, và lý do.",
   "nba.createTask": "Thêm việc này",
@@ -5405,10 +5458,6 @@ export const vi = {
   "person.thin.remediation.employer":
     "Hãy thêm nơi họ làm việc, Margince sẽ đọc website công ty đó để tìm vai trò của họ.",
   "person.thin.logFirst": "Ghi nhận tương tác đầu tiên",
-  "person.timeline.all": "Tất cả",
-  "person.timeline.messages": "Tin nhắn",
-  "person.timeline.meetings": "Cuộc họp",
-  "person.timeline.tasks": "Công việc",
   "person.enriched.title": "Những gì Margince đọc được",
   "person.enriched.sub":
     "Mỗi giá trị kèm đoạn văn bản đã đọc ra nó. Bạn sửa một giá trị thì bản sửa được giữ nguyên.",
@@ -5717,6 +5766,7 @@ export const vi = {
   "person.meeting.loading": "Đang tổng hợp bản tóm tắt…",
   "person.meeting.assembledNow": "Vừa được tổng hợp từ dữ liệu mới nhất",
   "person.meeting.header": "Tổng quan",
+  "person.meeting.what_changed": "Kể từ lần trao đổi gần nhất",
   "person.meeting.goal": "Mục tiêu cuộc họp",
   "person.meeting.attendees": "Người tham dự",
   "person.meeting.commitments": "Cam kết còn mở",

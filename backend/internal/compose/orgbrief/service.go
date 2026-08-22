@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -38,7 +39,7 @@ import (
 // composite read is injected rather than imported so this package composes
 // one seam instead of re-deriving nine gated reads.
 type Assembler interface {
-	Assemble(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.Organization360, error)
+	AssembleScoped(ctx context.Context, orgID ids.OrganizationID, opts org360.AssembleOptions) (crmcontracts.Organization360, error)
 }
 
 // ProfileReader is what the company IS, as opposed to how it stands with us:
@@ -86,25 +87,44 @@ func NewService(pool *pgxpool.Pool, view Assembler, profile ProfileReader, lane 
 // company has no description" writes a brief that silently lost its second
 // half AND caches it, so the next reader sees the same gap with nothing to
 // say it was ever there. The reader gets one honest failure instead.
-func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID, withProfile bool) (Input, error) {
-	view, err := s.view.Assemble(ctx, orgID)
+//
+// projectID narrows the read to one body of work (org360.AssembleOptions);
+// the scoped 360 reports what the narrowing kept, and that report is handed
+// back beside the input so the wire can say so.
+func (s *Service) assemble(
+	ctx context.Context, orgID ids.OrganizationID, withProfile bool, projectID *ids.ProjectID,
+) (Input, *crmcontracts.ProjectScope, error) {
+	view, err := s.view.AssembleScoped(ctx, orgID, org360.AssembleOptions{ProjectID: projectID})
 	if err != nil {
-		return Input{}, err
+		return Input{}, nil, err
 	}
 	in := FromView(view)
 	if withProfile && s.profile != nil {
 		fields, profileErr := s.profile.ListOrganizationProfileFields(ctx, orgID)
 		if profileErr != nil {
-			return Input{}, fmt.Errorf("read the company profile for the brief: %w", profileErr)
+			return Input{}, nil, fmt.Errorf("read the company profile for the brief: %w", profileErr)
 		}
 		in.foldProfile(fields)
 	}
-	return in, nil
+	return in, view.Scope, nil
 }
 
 // Get serves the brief, regenerating when the cache no longer matches.
 // force skips the cache entirely — the explicit refresh.
 func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool) (crmcontracts.OrganizationBrief, error) {
+	return s.GetScoped(ctx, orgID, force, nil)
+}
+
+// GetScoped is Get narrowed to one project, when projectID is given.
+//
+// The cache holds ONE brief per reader and account, and the project rides
+// the fingerprint rather than the row key: a scoped read after an unscoped
+// one misses and rewrites, and so does the way back. That is a rewrite per
+// switch, never a stale brief — a scoped brief can never be served as the
+// whole account's, because their fingerprints differ.
+func (s *Service) GetScoped(
+	ctx context.Context, orgID ids.OrganizationID, force bool, projectID *ids.ProjectID,
+) (crmcontracts.OrganizationBrief, error) {
 	// A brief is a reading aid for a person; an agent reading records
 	// through a passport has the records themselves.
 	if err := auth.RequireHuman(ctx); err != nil {
@@ -117,7 +137,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	// The gates that matter run HERE, in the caller's own composite read: a
 	// brief can only be written from what this caller may see, and an
 	// account they cannot read refuses before any cache is consulted.
-	in, err := s.assemble(ctx, orgID, true)
+	in, scope, err := s.assemble(ctx, orgID, true, projectID)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
@@ -134,7 +154,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	// had sections unmarshals cleanly into an envelope with none, and serving
 	// it would render an account nobody could say anything about.
 	if found && !force && cached.Version == storedVersion && cached.Fingerprint == fingerprint {
-		return cached.wire(orgID), nil
+		return cached.wire(orgID, scope), nil
 	}
 
 	sections, by, err := Write(ctx, s.lane, orgID.String(), in)
@@ -154,7 +174,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
-	return written.wire(orgID), nil
+	return written.wire(orgID, scope), nil
 }
 
 // Ask answers one prepared question about the account.
@@ -165,6 +185,13 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 // the reader has already moved past.
 func (s *Service) Ask(
 	ctx context.Context, orgID ids.OrganizationID, raw crmcontracts.OrganizationQuestion,
+) (crmcontracts.OrganizationAnswer, error) {
+	return s.AskScoped(ctx, orgID, raw, nil)
+}
+
+// AskScoped is Ask narrowed to one project, when projectID is given.
+func (s *Service) AskScoped(
+	ctx context.Context, orgID ids.OrganizationID, raw crmcontracts.OrganizationQuestion, projectID *ids.ProjectID,
 ) (crmcontracts.OrganizationAnswer, error) {
 	// A prepared question is a reading aid for a person; an agent asking about
 	// an account has the records themselves.
@@ -178,7 +205,7 @@ func (s *Service) Ask(
 	// The gates that matter run HERE, in the caller's own composite read: an
 	// answer can only be written from what this caller may see, and an account
 	// they cannot read refuses before a single word is written.
-	in, err := s.assemble(ctx, orgID, false)
+	in, scope, err := s.assemble(ctx, orgID, false, projectID)
 	if err != nil {
 		return crmcontracts.OrganizationAnswer{}, err
 	}
@@ -191,6 +218,7 @@ func (s *Service) Ask(
 		Question:       question,
 		GeneratedAt:    s.now().UTC(),
 		GeneratedBy:    by,
+		Scope:          scope,
 		Sentences:      wireSentences(withEvidenceNames(sentences, in)),
 	}, nil
 }
@@ -213,7 +241,11 @@ type stored struct {
 	Sentences []Sentence `json:"sentences,omitempty"`
 }
 
-func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
+// scope is the narrowing this read ran under, reported beside the text
+// whether the text was written now or served from the cache: the counts are
+// the account's as of THIS read, which is the only reading a scope line is
+// about.
+func (b stored) wire(orgID ids.OrganizationID, scope *crmcontracts.ProjectScope) crmcontracts.OrganizationBrief {
 	sections := make([]crmcontracts.OrganizationBriefSection, 0, len(b.Sections))
 	for _, section := range b.Sections {
 		wired := wireSentences(section.Sentences)
@@ -231,6 +263,7 @@ func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
 		OrganizationId: openapi_types.UUID(orgID.UUID),
 		GeneratedAt:    b.GeneratedAt,
 		GeneratedBy:    b.GeneratedBy,
+		Scope:          scope,
 		Sections:       sections,
 	}
 }

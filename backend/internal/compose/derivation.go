@@ -13,7 +13,9 @@ package compose
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -172,13 +174,20 @@ type boundExpr struct {
 	// isNull pins the column as unset rather than equal to value. Separate from
 	// an empty value, which now means the empty string and nothing else.
 	isNull bool
+	// threshold, when set, renders the predicate itself over the bound number
+	// (reportthreshold.go); expr is empty and value is the decimal the handle
+	// carried.
+	threshold *reportThreshold
 }
 
 // derivationPlan is a compiled handle: validated predicates, the
 // drill-through SELECT list, the aggregate recompute list, and the
 // plain-language definition — everything but the execution.
 type derivationPlan struct {
-	preds      []boundExpr
+	preds []boundExpr
+	// predicates is the handle's raw field → value map, kept for the scoped
+	// filter gate the execution half runs before the WHERE side binds.
+	predicates map[string]string
 	definition string
 	aggregates []reportAggregate
 	columns    []string // drill-through output names, aligned with selects
@@ -201,6 +210,13 @@ func (e *reportEngine) Derive(ctx context.Context, report string, q derivationQu
 	if err := auth.Require(ctx, string(spec.entity), principal.ActionRead); err != nil {
 		return derivationOutcome{}, err
 	}
+	// A handle naming a dimension or measure the caller may not read is
+	// refused, like the plan that would have minted it; the columns the handle
+	// did not name are narrowed to what the caller may see.
+	if err := requireVocabularyGrants(ctx, spec, slices.Concat(q.GroupBy, aggregateFields(q.Aggregates), slices.Sorted(maps.Keys(q.Predicates)))); err != nil {
+		return derivationOutcome{}, err
+	}
+	spec = grantedSpec(ctx, spec)
 	plan, err := compileDerivation(spec, q)
 	if err != nil {
 		return derivationOutcome{}, err
@@ -227,7 +243,7 @@ func (e *reportEngine) Derive(ctx context.Context, report string, q derivationQu
 // compileDerivation validates a parsed handle against the report's
 // closed vocabulary and renders every SQL fragment and the definition.
 func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, error) {
-	plan := derivationPlan{aggregates: q.Aggregates}
+	plan := derivationPlan{aggregates: q.Aggregates, predicates: q.Predicates}
 	if len(plan.aggregates) == 0 {
 		plan.aggregates = spec.defaultAggs
 	}
@@ -242,6 +258,10 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 	// Predicates admit the union of the report's dimensions and filters:
 	// a group-key value pins the cell, a filter value replays the plan.
 	for key, value := range q.Predicates {
+		if threshold, ok := spec.thresholds[key]; ok {
+			plan.preds = append(plan.preds, boundExpr{field: key, value: value, threshold: &threshold})
+			continue
+		}
 		expr, ok := spec.dimensions[key]
 		if !ok {
 			expr, ok = spec.filters[key]
@@ -301,6 +321,31 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 		plan.aggSelects = append(plan.aggSelects, sel)
 	}
 	return plan, nil
+}
+
+// grantedSpec is the spec with the dimensions and measures this caller may
+// not read removed, so a drill-through selects only what the caller could
+// have grouped or aggregated by themselves.
+func grantedSpec(ctx context.Context, spec reportSpec) reportSpec {
+	if len(spec.grants) == 0 {
+		return spec
+	}
+	narrowed := spec
+	narrowed.dimensions = map[string]string{}
+	for _, name := range grantedNames(ctx, spec, spec.dimensions) {
+		narrowed.dimensions[name] = spec.dimensions[name]
+	}
+	narrowed.measures = map[string]string{}
+	for _, name := range grantedNames(ctx, spec, spec.measures) {
+		narrowed.measures[name] = spec.measures[name]
+	}
+	narrowed.defaultAggs = grantedDefaultAggregates(ctx, spec)
+	if len(narrowed.measures) < len(spec.measures) {
+		// A reading order spelled over a withheld measure would still rank
+		// the rows by it, which tells the caller what the numbers were.
+		narrowed.orderBy = ""
+	}
+	return narrowed
 }
 
 // boundPredicate is one field = value binding rendered into the

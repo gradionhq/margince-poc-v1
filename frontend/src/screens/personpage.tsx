@@ -16,6 +16,7 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
+import { liveProjects } from "../design-system/projectpicker";
 import { RECORD_ZONE } from "../format/timezone";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -393,6 +394,7 @@ export function PersonPageV2({
           activityId={briefingMeeting(drawer)}
           open={briefingMeeting(drawer) !== null}
           onClose={() => setDrawer(null)}
+          projects={liveProjects(view.data.projects)}
         />
       </RecordView>
     </div>
